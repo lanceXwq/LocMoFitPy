@@ -1,0 +1,21 @@
+# benchmarks/speed/speed.py with 'fit s' timing the compiled fit on padded data, as run_locmofit runs it (2026-11-01; compiled_2026-10-29.txt timed the unpadded loop). Apple M1 Pro, CPU, jax 0.11.2. 'call s' is a first run_locmofit call per case (it compiles); the sites table fits 20 subsets of each site one after another (float64), compiling once per size class.
+
+jax 0.11.2 on cpu
+case         dtype        N      M  value ms   grad ms  v ns/NM  g ns/NM  call s   fit s  iter
+ring         float64    102    121    0.0763     0.191     6.18    15.45    1.39 0.00656    43
+ring         float32    102    121    0.0592     0.145     4.80    11.78    1.15 0.00258    29
+ring2D       float64    102    121    0.0763     0.181     6.18    14.66    1.02 0.00792    53
+ring2D       float32    102    121    0.0672     0.113     5.44     9.19    1.02 0.00487    54
+double_ring  float64    187    242     0.196     0.491     4.34    10.86    1.67  0.0326    87
+double_ring  float32    187    242     0.131     0.315     2.90     6.95     1.6  0.0216    87
+spcap        float64    290   6648      1.27      6.27     0.66     3.25    1.43   0.324    50
+spcap        float32    290   6648     0.882      4.16     0.46     2.16    1.27   0.148    41
+spcap_ring   float64    330   1276      0.54      2.26     1.28     5.36    1.82   0.204    94
+spcap_ring   float32    330   1276     0.332      1.36     0.79     3.23    1.76   0.107    83
+
+case         sites  classes  total s  per site s
+ring            20        6     5.28       0.264
+ring2D          20        6     4.97       0.248
+double_ring     20        7     9.38       0.469
+spcap           20        5     10.6       0.532
+spcap_ring      20        5     11.8        0.59

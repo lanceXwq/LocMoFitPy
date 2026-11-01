@@ -30,7 +30,7 @@ Measured with `benchmarks/speed/speed.py` (`plain_jax_2026-10-28.txt` before, `c
 
 **The gradient with every trial value.** As optimistix showed, our loop evaluated the loss at the trial point and then the loss and its gradient again once it accepted the point; the line search now evaluates both at each trial point, so an accepted point needs nothing more. Fits took 15–35% less (the ring 9.5 → 6.0 ms, the double ring 46 → 30 ms, the cap 0.33 → 0.28 s in float64), with the same iterations and results (the parity tests pass).
 
-**Result.** A jitted cap fit takes 0.29 s (float64) and 0.17 s (float32), as fast as LocMoFit.jl (0.29 and 0.18 s); the cap with ring 0.18 and 0.10 s (LocMoFit.jl 0.12 and 0.07 s); a ring 6 ms (LocMoFit.jl 2.8 ms), where the loop's fixed cost per iteration dominates.
+**Result.** A cap fit as `run_locmofit` runs it, compiled and on padded data, takes 0.32 s (float64) and 0.15 s (float32), against LocMoFit.jl's 0.29 and 0.18 s; the cap with ring 0.20 and 0.11 s (LocMoFit.jl 0.12 and 0.07 s); a ring 6.6 ms (LocMoFit.jl 2.8 ms), where the loop's fixed cost per iteration dominates (`compiled_padded_2026-11-01.txt`). Padding costs about 10% here: `compiled_2026-10-29.txt` timed the same loop on unpadded data (the cap 0.29 s in float64).
 
 ## Float32 fits can stop early (found 2026-10-29, accepted the same day)
 

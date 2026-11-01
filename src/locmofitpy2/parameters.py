@@ -58,7 +58,6 @@ class ParameterMap:
             )
         self.names = names
         self.free = free
-        self.index = {k: i for i, k in enumerate(names)}
         roots = [root(k) for k in names]
         self.base = np.array(
             [0.0 if r in free else float(theta0[r]) for r in roots]

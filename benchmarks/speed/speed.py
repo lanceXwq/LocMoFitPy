@@ -1,4 +1,4 @@
-"""Speed of LocMoFitPy's fits, as LocMoFit.jl's benchmarks/speed/speed.jl: for every model on its tutorial site (notebooks/data), from the moved start of the tests, in float64 and float32, the loss and its gradient (jitted) and a complete fit, both a whole `run_locmofit` call (which compiles) and the jitted fit alone; then 20 "sites" per model (random subsets of 60–100% of the tutorial site's localizations, float64) fitted with `run_locmofit` one after another, which shows how often a dataset compiles. Run from the LocMoFitPy folder:
+"""Speed of LocMoFitPy's fits, as LocMoFit.jl's benchmarks/speed/speed.jl: for every model on its tutorial site (notebooks/data), from the moved start of the tests, in float64 and float32, the loss and its gradient (jitted) and a complete fit, both a whole `run_locmofit` call (which compiles) and the compiled fit alone, on the padded data, as `run_locmofit` runs it; then 20 "sites" per model (random subsets of 60–100% of the tutorial site's localizations, float64) fitted with `run_locmofit` one after another, which shows how often a dataset compiles. Run from the LocMoFitPy folder:
 pixi run -e dev python benchmarks/speed/speed.py
 """
 
@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "tests"))
 from common import moved, tutorial  # noqa: E402
 
 import locmofitpy2 as lm  # noqa: E402
-from locmofitpy2.bfgs import bfgs  # noqa: E402
+from locmofitpy2.loss import fit_data  # noqa: E402
+from locmofitpy2.pipeline import compiled_fit  # noqa: E402
 
 CASES = (
     ("ring", "Ring", 3),
@@ -56,8 +57,9 @@ for case, model, D in CASES:
         loss = lm.make_loss(p)
         value, grad = jax.jit(loss), jax.jit(jax.grad(loss))
         tv, tg = best(lambda: value(u)), best(lambda: grad(u))
-        fit = jax.jit(lambda u: bfgs(loss, u))
-        tf = best(lambda: fit(u).x, n=3)
+        data, static = fit_data(p, pad=True)
+        fit = compiled_fit(static, 200, 1e-4, False)
+        tf = best(lambda: fit(u, data)[0].x, n=3)
         N, M = len(locs), sum(len(rg) for rg in p.ranges)
         print(
             f"{case:12s} {dtype:8s} {N:5d} {M:6d} {1e3 * tv:9.3g} {1e3 * tg:9.3g} {1e9 * tv / (N * M):8.2f} {1e9 * tg / (N * M):8.2f} {call:7.3g} {tf:7.3g} {r['iterations']:5d}"

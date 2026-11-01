@@ -23,8 +23,6 @@ def sq_hinge(x):
 class SimpleModel:
     """A model of one shape. Subclasses define `shape_parameters`, `unit_points`, `local_points`, `shape_penalty` and `shape_summary`."""
 
-    name = "SimpleModel"
-
     def shape_parameters(self) -> dict[str, float]:
         raise NotImplementedError
 
@@ -109,8 +107,6 @@ def pose_summary(position, n) -> dict:
 class Ring(SimpleModel):
     """A circle of radius `r` (nm), centered at its position `(x, y, z)`, in the plane normal to its axis."""
 
-    name = "Ring"
-
     def shape_parameters(self):
         return {"r": 50.0}
 
@@ -133,8 +129,6 @@ class SphericalCap(SimpleModel):
 
     Its dimensionless curvature is κ′ = tanh(`eta`) = curvature × `s`: 0 is a flat disc of radius 2s, ±1 the whole sphere of radius s, and a negative κ′ bends the other way. The sphere's radius is s/κ′ and the half-angle from the axis to the rim, seen from the sphere's center, is acos(1 − 2κ′²) (LocMoFit.jl's derivations/derivation.qmd).
     """
-
-    name = "SphericalCap"
 
     def shape_parameters(self):
         return {"s": 50.0, "eta": 0.5}
@@ -184,7 +178,6 @@ class Composite:
     ):
         self.components = components
         self.defaults = dict(defaults or {})
-        self.name = "Composite"
 
     def ncomponents(self) -> int:
         return len(self.components)

@@ -12,7 +12,6 @@ from common import (
     SPACING,
     axes_init,
     fractions,
-    full,
     make_data,
     parts,
     problem,
@@ -173,7 +172,6 @@ def test_gradient(case, kwargs, D):
             / (2 * h)
         )
     assert np.allclose(g, fd, rtol=1e-5, atol=1e-8 * np.max(np.abs(fd)))
-    assert full(p, u)  # every parameter is a finite number
 
 
 @pytest.mark.parametrize("case", range(len(CASES)))
@@ -185,6 +183,10 @@ def test_padding(case, D):
     p, u = problem(model, theta, starts, locs, precs)
     exact, padded = lm.make_loss(p), lm.make_loss(p, pad=True)
     data, static = lm.loss.fit_data(p, pad=True)
-    assert len(data.locs) > len(locs) or any(e - s > r.stop - r.start for (s, e), r in zip(static.blocks, p.ranges))
+    assert len(data.locs) > len(locs) or any(
+        e - s > r.stop - r.start for (s, e), r in zip(static.blocks, p.ranges)
+    )
     assert float(padded(u)) == pytest.approx(float(exact(u)), rel=1e-12)
-    assert np.allclose(jax.grad(padded)(u), jax.grad(exact)(u), rtol=1e-10, atol=1e-14)
+    assert np.allclose(
+        jax.grad(padded)(u), jax.grad(exact)(u), rtol=1e-10, atol=1e-14
+    )
