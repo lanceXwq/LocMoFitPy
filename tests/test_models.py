@@ -223,13 +223,9 @@ def test_freezing():
     m = lm.ParameterMap(theta, ("z", "sigma"))
     u = m.free_parameters(theta)
     assert m.free == ("x", "y", "r", "vx", "vy")
-    assert {
-        k: float(v) for k, v in m.full_parameters(jnp.asarray(u)).items()
-    } == theta
+    assert m.full_parameters(u) == theta
     u[m.free.index("r")] = 45.0
-    assert {
-        k: float(v) for k, v in m.full_parameters(jnp.asarray(u)).items()
-    } == {**theta, "r": 45.0}
+    assert m.full_parameters(u) == {**theta, "r": 45.0}
     pf, uf = problem(model, theta, starts, locs, precs, freeze=("z", "sigma"))
     uf = uf.at[pf.parameter_map.free.index("r")].set(45.0)
     p45, u45 = problem(model, {**theta, "r": 45.0}, starts, locs, precs)
@@ -252,28 +248,17 @@ def test_ties():
     u = m.free_parameters(theta)
     assert "r2" not in m.free and "sigma" not in m.free
 
-    def full(u):
-        return {
-            k: float(v) for k, v in m.full_parameters(jnp.asarray(u)).items()
-        }
-
-    assert full(u) == {
+    assert m.full_parameters(u) == {
         **theta,
         "r2": theta["r1"],
     }  # the target takes the source's value
     u[m.free.index("r1")] = 47.0
-    assert full(u)["r2"] == 47.0
+    assert m.full_parameters(u)["r2"] == 47.0
     # tied to a frozen parameter: frozen at its value; ties chain
     mf = lm.ParameterMap(theta, ("r1",), (("r2", "r1"),))
-    assert (
-        float(mf.full_parameters(jnp.asarray(mf.free_parameters(theta)))["r2"])
-        == theta["r1"]
-    )
+    assert mf.full_parameters(mf.free_parameters(theta))["r2"] == theta["r1"]
     mc = lm.ParameterMap(theta, (), (("r2", "r1"), ("z2", "r2")))
-    assert (
-        float(mc.full_parameters(jnp.asarray(mc.free_parameters(theta)))["z2"])
-        == theta["r1"]
-    )
+    assert mc.full_parameters(mc.free_parameters(theta))["z2"] == theta["r1"]
     for args in (
         ((), (("r2", "w"),)),
         ((), (("r2", "r1"), ("r2", "x1"))),

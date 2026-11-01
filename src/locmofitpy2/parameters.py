@@ -5,7 +5,6 @@ from __future__ import annotations
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
 
-import jax.numpy as jnp
 import numpy as np
 
 
@@ -70,15 +69,10 @@ class ParameterMap:
         """The free parameters of `theta`, as the vector the optimizer works on."""
         return np.array([float(theta[k]) for k in self.free])
 
-    def full_vector(self, u, dtype=None):
-        """All parameters, frozen and tied ones included, as a vector in the order of `names`."""
-        dtype = u.dtype if dtype is None else dtype
-        return jnp.asarray(self.base, dtype) + jnp.asarray(self.S, dtype) @ u
-
-    def full_parameters(self, u, dtype=None) -> dict:
-        """All parameters as a dict of scalars."""
-        theta = self.full_vector(u, dtype)
-        return {k: theta[i] for i, k in enumerate(self.names)}
+    def full_parameters(self, u) -> dict[str, float]:
+        """All parameters, frozen and tied ones included, as a dict of floats (outside a fit; inside one, `loss.parameters`)."""
+        theta = self.base + self.S @ np.asarray(u, dtype=float)
+        return dict(zip(self.names, map(float, theta)))
 
 
 def apply_init(

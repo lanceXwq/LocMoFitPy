@@ -225,9 +225,7 @@ def shares(model, theta):
 
 
 def full(prob, u):
-    return {
-        k: float(v) for k, v in prob.parameter_map.full_parameters(u).items()
-    }
+    return prob.parameter_map.full_parameters(u)
 
 
 def readcsv(path):

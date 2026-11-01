@@ -14,7 +14,7 @@ import numpy as np
 from jax.typing import ArrayLike
 
 from .bfgs import bfgs
-from .loss import FitStatic, fit_data, loss_value
+from .loss import FitStatic, fit_data, loss_value, parameters
 from .models import get_model
 from .parameters import ParameterMap, apply_init, freeze_names, tie_pairs
 
@@ -86,9 +86,7 @@ def fit_problem(
     )
     pmap = ParameterMap(theta0, freeze, tie_pairs(tie))
     u0 = pmap.free_parameters(theta0)
-    theta0 = dict(
-        zip(pmap.names, pmap.base + pmap.S @ u0)
-    )  # with the ties applied
+    theta0 = pmap.full_parameters(u0)  # with the ties applied
     unit = model.unit_model(theta0, starts, spacing=spacing, dtype=dtype.type)
 
     sizes = [len(points) for points, _ in unit]
@@ -182,8 +180,7 @@ def compiled_fit(static: FitStatic, max_iter: int, tol: float, history: bool):
             tol=tol,
             history=history,
         )
-        theta_vec = data.base + data.S @ result.x
-        theta = {k: theta_vec[i] for i, k in enumerate(static.names)}
+        theta = parameters(result.x, data, static)
         return result, static.model.model_points(data.unit_model, theta)
 
     return jax.jit(fit)
@@ -193,22 +190,8 @@ def fit_result(
     problem: Problem, static: FitStatic, result, points, history: bool
 ) -> dict[str, Any]:
     model, pmap = problem.model, problem.parameter_map
-
-    def full(u) -> dict[str, float]:
-        return dict(
-            zip(
-                pmap.names,
-                (
-                    float(v)
-                    for v in pmap.base + pmap.S @ np.asarray(u, dtype=float)
-                ),
-            )
-        )
-
-    theta = full(result.x)
-    lw = np.array(
-        [0.0] + [theta[f"omega{k}"] for k in range(2, model.ncomponents() + 1)]
-    )
+    theta = pmap.full_parameters(result.x)
+    lw = np.array([float(w) for w in model.log_weights(theta)])
     weights = np.exp(lw - lw.max())
     iterations = int(result.iterations)
     retcode = (
@@ -221,7 +204,8 @@ def fit_result(
     hist = None
     if history:
         thetas = [
-            full(u) for u in np.asarray(result.history_x)[: iterations + 1]
+            pmap.full_parameters(u)
+            for u in np.asarray(result.history_x)[: iterations + 1]
         ]
         hist = {
             "losses": np.asarray(result.history_f)[: iterations + 1],

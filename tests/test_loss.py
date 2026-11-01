@@ -79,6 +79,70 @@ def test_log_likelihood_float32_far_from_origin():
     )
 
 
+@pytest.mark.parametrize("D", [3, 2])
+def test_log_likelihood_gradient(D):
+    # the closed-form gradient (_ll_bwd) against central differences, as LocMoFit.jl tests likelihood_pass: with respect to the points, sigma, the log weights of two components and the two log fractions of the mixture with the background, in 3D and 2D (where the points' third coordinate has no effect)
+    x = np.array(
+        [[10 * pseudo(i, j) for i in range(1, 4)] for j in range(1, 11)]
+    )
+    y = np.array(
+        [[10 * pseudo(i, j + 50) for i in range(1, 4)] for j in range(1, 21)]
+    )
+    s = np.array(
+        [
+            [0.5 + abs(pseudo(i, j + 99)) for i in range(1, 4)]
+            for j in range(1, 11)
+        ]
+    )
+    ranges = (range(0, 8), range(8, 20))
+    sigma, logw = 1.5, np.log([0.3, 0.7])
+    a, b = math.log(0.8), math.log(0.2) - 3 * math.log(30.0)
+
+    def f(y, sigma, logw, a, b):
+        return lm.log_likelihood(
+            jnp.asarray(x[:, :D]),
+            jnp.asarray(s[:, :D]),
+            jnp.asarray(y),
+            ranges,
+            jnp.asarray(sigma),
+            jnp.asarray(logw),
+            a,
+            b,
+            True,
+        )
+
+    g = jax.grad(f, argnums=(0, 1, 2, 3, 4))(
+        jnp.asarray(y), sigma, jnp.asarray(logw), a, b
+    )
+    h = 1e-6
+
+    def fd(k, shift):
+        args = [y, sigma, logw, a, b]
+        plus, minus = list(args), list(args)
+        plus[k], minus[k] = args[k] + shift, args[k] - shift
+        return (float(f(*plus)) - float(f(*minus))) / (2 * h)
+
+    def e(shape, index):
+        out = np.zeros(shape)
+        out[index] = h
+        return out
+
+    def close(got, want):
+        return np.linalg.norm(np.asarray(got) - want) <= 1e-6 * np.linalg.norm(
+            want
+        )
+
+    points = np.array(
+        [[fd(0, e(y.shape, (m, d))) for d in range(3)] for m in range(20)]
+    )
+    assert close(g[0], points)
+    if D == 2:
+        assert np.all(np.asarray(g[0])[:, 2] == 0)
+    assert close(g[1], fd(1, h))
+    assert close(g[2][0], fd(2, e(2, 0))) and close(g[2][1], fd(2, e(2, 1)))
+    assert close(g[3], fd(3, h)) and close(g[4], fd(4, h))
+
+
 @pytest.mark.parametrize("case", range(len(CASES)))
 @pytest.mark.parametrize("D", [3, 2])
 @pytest.mark.parametrize(

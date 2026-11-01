@@ -147,7 +147,7 @@ def fit(case, model, D):
     )
     t = p.model.summary(
         p.unit_model,
-        {k: float(v) for k, v in p.parameter_map.full_parameters(u).items()},
+        p.parameter_map.full_parameters(u),
     )
     return r, t, signal, component
 

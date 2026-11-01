@@ -282,10 +282,15 @@ def model_key(model) -> tuple:
     return (type(model).__name__,)
 
 
+def parameters(u, data: FitData, static: FitStatic) -> dict:
+    """All parameters θ = base + S·u, by name, as JAX scalars (traceable, unlike `ParameterMap.full_parameters`)."""
+    theta = data.base + data.S @ u
+    return {k: theta[i] for i, k in enumerate(static.names)}
+
+
 def loss_value(u, data: FitData, static: FitStatic):
     """Minus the log posterior of the parameters, per localization, plus the model's penalty."""
-    theta_vec = data.base + data.S @ u
-    theta = {k: theta_vec[i] for i, k in enumerate(static.names)}
+    theta = parameters(u, data, static)
     model = static.model
     points = model.model_points(data.unit_model, theta)
     lw = jnp.stack(model.log_weights(theta))
