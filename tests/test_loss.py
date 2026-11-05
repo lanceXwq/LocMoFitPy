@@ -20,7 +20,7 @@ from common import (
     shares,
 )
 
-import locmofitpy2 as lm
+import locmofitpy as lm
 
 
 def test_log_likelihood_float32_far_from_origin():

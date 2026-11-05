@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 from common import CASES, SPACING, direction, make_data, pose, problem, unit
 
-import locmofitpy2 as lm
-from locmofitpy2.transformations import chart_rotation, rotmat
+import locmofitpy as lm
+from locmofitpy.transformations import chart_rotation, rotmat
 
 
 def test_orientation_chart():

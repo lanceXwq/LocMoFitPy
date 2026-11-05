@@ -17,8 +17,8 @@ from common import (
     tutorial,
 )
 
-import locmofitpy2 as lm
-from locmofitpy2.transformations import chart_rotation
+import locmofitpy as lm
+from locmofitpy.transformations import chart_rotation
 
 JULIA = json.loads(
     (Path(__file__).parent / "data" / "julia_fits.json").read_text()

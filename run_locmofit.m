@@ -11,8 +11,8 @@ locs = data(:, 1:3);
 loc_precisions = data(:,4:6);
 
 tic
-% Import locmofitpy2
-api = py.importlib.import_module("locmofitpy2");
+% Import locmofitpy
+api = py.importlib.import_module("locmofitpy");
 
 init_params = py.dict(pyargs("c", 0.02));
 % freeze = py.tuple("c");

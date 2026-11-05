@@ -6,12 +6,7 @@ Guidance for AI coding agents working in this repository. Workspace-wide rules (
 
 **LocMoFitPy** is the JAX port of LocMoFit.jl (`../LocMoFit.jl`). It fits a static parametric geometric model to one site's localizations by maximum likelihood and **should give the same results as LocMoFit.jl**. It is meant to be called from MATLAB (SMAP, via `pyenv`; see `run_locmofit.m`) and from Python (SMAPpy). Python is capped at the newest version the **latest MATLAB release** supports through `pyenv` (R2026b → 3.14, so `<3.15`). Raise the cap when a new MATLAB release supports a newer Python. Once the lab moves to SMAPpy, follow SMAPpy's Python version instead. Everything else (JAX) tracks the latest stable releases (Compatibility in `../AGENTS.md`).
 
-Names differ by layer, so do not "fix" any of them without asking:
-
-- folder: `LocMoFitPy`
-- GitHub repo: `lanceXwq/LocMoFitPy2`
-- distribution: `LocMoFitPy2`
-- import: `locmofitpy2`
+One name in every layer since 2026-11-04: the folder `LocMoFitPy`, the GitHub repo `lanceXwq/LocMoFitPy`, the distribution `LocMoFitPy`, the import `locmofitpy`. Until then the repo, the distribution and the import were `LocMoFitPy2`/`locmofitpy2`; GitHub redirects the old repo URL, and SMAP's `WeiMoFit` still expects the old folder.
 
 Stack: `jax` only (since 2026-10-28; Equinox and optax were dropped when the models moved to a flat parameter vector and the optimizer to an own BFGS loop). Environments are managed by **pixi** (`pyproject.toml` → `[tool.pixi.*]`).
 
@@ -35,15 +30,17 @@ The package mirrors LocMoFit.jl's design (2026-10-28), so that a change there is
 
 | Path | Contents |
 | --- | --- |
-| `src/locmofitpy2/__init__.py` | Public API: `run_locmofit`, `fit_problem`, `make_loss`, `log_likelihood`, `bfgs`, the models (`Ring`, `SphericalCap`, `Composite`, `DoubleRing`, `SpCapRing`), `get_model`, `list_models`, `ParameterMap` |
-| `src/locmofitpy2/pipeline.py` | `fit_problem` (everything a fit needs: the `Problem` and the starting free parameters), `run_locmofit` (the entry point MATLAB calls), `compiled_fit` (the jitted fit, cached per model structure and padded size class) and the result dict |
-| `src/locmofitpy2/parameters.py` | `ParameterMap` (θ = base + S·u: free parameters → all parameters, with freezing and ties, as LocMoFit.jl's), `apply_init`, `freeze_names`, `tie_pairs` |
-| `src/locmofitpy2/models.py` | `SimpleModel` (a shape in its own frame, placed by `x, y, z, vx, vy`), `Ring`, `SphericalCap` (the constant-area cap: `s`, `eta`), `Composite` (components in component 1's frame, suffixed names, weights `omega2…`), the presets `DoubleRing`, `SpCapRing`, and the name lookup `get_model` (case-insensitive; aliases `spcap`, `npc`) |
-| `src/locmofitpy2/unit_models.py` | `unit_ring`, `unit_sphere` (Fibonacci), `unit_cap` (direction and depth), as NumPy arrays |
-| `src/locmofitpy2/transformations.py` | `rotmat(theta, phi)` (the frame of a starting axis), `chart_rotation(R0, vx, vy)`, `place` |
-| `src/locmofitpy2/loss.py` | `log_likelihood` (the mixture's log density summed over localizations, one dimension at a time with the differences formed first, optionally masked; its gradient is a closed-form `custom_vjp`, `_ll_bwd`), `loss_value`, `fit_data` (the arrays and static layout of a fit, padded to `bucket` sizes for `run_locmofit`) and `make_loss(problem, pad=False)` (minus the log posterior per localization, plus the penalty) |
-| `src/locmofitpy2/bfgs.py` | `bfgs`: BFGS with LineSearches.jl's backtracking, as Optim.jl's that LocMoFit.jl uses, in a jitted `lax.while_loop`; optional per-iteration history |
-| `src/locmofitpy2/_profile.py`, `_jaxprofile.py` | Profiling helpers, gitignored (`_*profile.py`); they predate the port |
+| `src/locmofitpy/__init__.py` | Public API: `run_locmofit`, `fit_problem`, `make_loss`, `log_likelihood`, `bfgs`, the models (`Ring`, `SphericalCap`, `Composite`, `DoubleRing`, `SpCapRing`), `get_model`, `list_models`, `ParameterMap` |
+| `src/locmofitpy/pipeline.py` | `fit_problem` (everything a fit needs: the `Problem` and the starting free parameters), `run_locmofit` (the entry point MATLAB calls), `compiled_fit` (the jitted fit, cached per model structure and padded size class) and the result dict |
+| `src/locmofitpy/parameters.py` | `ParameterMap` (θ = base + S·u: free parameters → all parameters, with freezing and ties, as LocMoFit.jl's), `apply_init`, `freeze_names`, `tie_pairs` |
+| `src/locmofitpy/models.py` | `SimpleModel` (a shape in its own frame, placed by `x, y, z, vx, vy`), `Ring`, `SphericalCap` (the constant-area cap: `s`, `eta`), `Composite` (components in component 1's frame, suffixed names, weights `omega2…`), the presets `DoubleRing`, `SpCapRing`, and the name lookup `get_model` (case-insensitive; aliases `spcap`, `npc`) |
+| `src/locmofitpy/unit_models.py` | `unit_ring`, `unit_sphere` (Fibonacci), `unit_cap` (direction and depth), as NumPy arrays |
+| `src/locmofitpy/transformations.py` | `rotmat(theta, phi)` (the frame of a starting axis), `chart_rotation(R0, vx, vy)`, `place` |
+| `src/locmofitpy/loss.py` | `log_likelihood` (the mixture's log density summed over localizations, one dimension at a time with the differences formed first, optionally masked; its gradient is a closed-form `custom_vjp`, `_ll_bwd`), `loss_value`, `fit_data` (the arrays and static layout of a fit, padded to `bucket` sizes for `run_locmofit`) and `make_loss(problem, pad=False)` (minus the log posterior per localization, plus the penalty) |
+| `src/locmofitpy/bfgs.py` | `bfgs`: BFGS with LineSearches.jl's backtracking, as Optim.jl's that LocMoFit.jl uses, in a jitted `lax.while_loop`; optional per-iteration history |
+| `src/locmofitpy/_profile.py`, `_jaxprofile.py` | Profiling helpers, gitignored (`_*profile.py`); they predate the port |
+| `src/locmofitpy/smappy_plugin/` | The SMAPpy plugin, shipped in the wheel: `Analysis/Measure/locmofit.py` holds *LocMoFit* (a fit per view, ROI or cluster; the values become region-table columns). SMAPpy imports the file by path, so it uses only the standard library and SMAPpy until a fit imports `locmofitpy`. Before the first fit of each SMAPpy session (unless SMAPpy's automatic update check, `smappy.updates.automatic()`, is off; there is no update button, by the owner's choice), it installs the head of GitHub's `main` with SMAPpy's installer (`smappy.torch_install.installer`: pip, else uv's pip) when the installed commit differs; an editable install is never updated. Not covered by the tests (SMAPpy is not a dependency); mypy ignores the `smappy` imports. |
+| `src/locmofitpy/smappy_setup.py` | `python -m locmofitpy.smappy_setup`, run once with SMAPpy's Python after installing LocMoFitPy into it, adds `smappy_plugin` to SMAPpy's plugin roots |
 | `tests/` | `common.py` (fixed inputs, independent references, tutorial loaders), `test_models.py`, `test_loss.py`, `test_fit.py`, `test_fit_cuda12.py`; `data/julia_fits.jl` writes `data/julia_fits.json`, LocMoFit.jl's fits of the tutorial data, the reference of the parity tests |
 | `notebooks/` | Owner's fit notebooks, which still use the API from before the port (`c`, `alpha`, `losses`). `notebooks/data/` holds the tutorial data: `ring`, `ring2D`, `double_ring`, `spcap`, `spcap_ring` (`<case>.csv`, `_truth.csv`, `_parameters.csv`) are copies of LocMoFit.jl's `examples/data`, generated there with DynMoSim; the older `simulated_data_*.csv`, `ground_truth*.csv` are the notebooks'. `fit spcap ROI4.ipynb` runs on experiment data in `../data/`. |
 | `benchmarks/speed/` | `speed.py` (as LocMoFit.jl's `benchmarks/speed/speed.jl`) and dated results: `plain_jax_2026-10-28.txt` (the port, before any optimization), `optimistix_2026-10-28.txt` (optimistix's BFGS against the own loop) and `compiled_2026-10-29.txt` (after task 2: compiled once per size class, the closed-form gradient, gradients with each trial value) |

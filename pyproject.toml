@@ -1,6 +1,6 @@
 [project]
 authors = [{name = "Lance (Weiqing) Xu", email = "lance.xwq@gmail.com"}]
-name = "LocMoFitPy2"
+name = "LocMoFitPy"
 requires-python = ">=3.11,<3.15" # Capped at the newest Python the latest MATLAB (R2026b) supports
 version = "0.1.0"
 dependencies = ["jax>=0.8,<1",]
@@ -32,7 +32,7 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "win-64", "osx-arm64"]
 
 [tool.pixi.pypi-dependencies]
-locmofitpy2 = { path = ".", editable = true }
+locmofitpy = { path = ".", editable = true }
 
 [tool.pixi.feature.cuda12]
 platforms = ["linux-64"]
@@ -52,3 +52,8 @@ cuda13dev = { features = ["dev", "cuda13"], solve-group = "cuda13" }
 
 [tool.ruff]
 line-length = 79
+
+# SMAPpy runs the plugin (smappy_plugin, smappy_setup.py) and is not a dependency
+[[tool.mypy.overrides]]
+module = ["smappy", "smappy.*"]
+ignore_missing_imports = true

@@ -9,7 +9,7 @@ import numpy as np
 
 jax.config.update("jax_enable_x64", True)
 
-import locmofitpy2 as lm  # noqa: E402
+import locmofitpy as lm  # noqa: E402
 
 DATA = Path(__file__).parent.parent / "notebooks" / "data"
 SPACING = 4.0

@@ -14,9 +14,9 @@ jax.config.update("jax_enable_x64", True)
 sys.path.insert(0, str(Path(__file__).parents[2] / "tests"))
 from common import moved, tutorial  # noqa: E402
 
-import locmofitpy2 as lm  # noqa: E402
-from locmofitpy2.loss import fit_data  # noqa: E402
-from locmofitpy2.pipeline import compiled_fit  # noqa: E402
+import locmofitpy as lm  # noqa: E402
+from locmofitpy.loss import fit_data  # noqa: E402
+from locmofitpy.pipeline import compiled_fit  # noqa: E402
 
 CASES = (
     ("ring", "Ring", 3),
