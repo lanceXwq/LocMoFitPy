@@ -32,6 +32,44 @@ Measured with `benchmarks/speed/speed.py` (`plain_jax_2026-10-28.txt` before, `c
 
 **Result.** A cap fit as `run_locmofit` runs it, compiled and on padded data, takes 0.32 s (float64) and 0.15 s (float32), against LocMoFit.jl's 0.29 and 0.18 s; the cap with ring 0.20 and 0.11 s (LocMoFit.jl 0.12 and 0.07 s); a ring 6.6 ms (LocMoFit.jl 2.8 ms), where the loop's fixed cost per iteration dominates (`compiled_padded_2026-11-01.txt`). Padding costs about 10% here: `compiled_2026-10-29.txt` timed the same loop on unpadded data (the cap 0.29 s in float64).
 
+## How many compilations a dataset costs (2026-11-06)
+
+Fitting many sites, as SMAPpy's per-region steps do, compiles once per setup and size class, never once per site. Measured with JAX 0.11.2 on an Apple M1 Pro, CPU, 3D, float64, through `run_locmofit` and through the SMAPpy plugin on 400 ring sites.
+
+**What decides a compilation.** There are two levels. `pipeline.compiled_fit` (an `lru_cache`) holds one jitted fit per key: the `FitStatic` (the model's structure, all parameter names, each component's padded point blocks, background on or off, prior on or off, padding on), plus `max_iter`, `tol` and `history`. JAX then compiles each jitted fit once per shape and dtype of its arguments: the padded number of localizations, D, the dtype, and the number of free parameters (the length of `u0` and the columns of `S`). Everything else is an argument and never compiles: the data, the starting values that leave the point count alone, the prior's (a, b) and the field-of-view volume. So the number of compilations is the number of setups used times the size classes their sites fall into.
+
+**Size classes.** `loss.bucket` rounds a count up to a number with at most 4 significant bits, in steps of 2^(bit length − 4):
+
+| Count | Step | Classes |
+| --- | --- | --- |
+| 1–16 | 1 | each count its own |
+| 17–32 | 2 | 18, 20, …, 32 |
+| 33–64 | 4 | 36, 40, …, 64 |
+| 65–128 | 8 | 72, 80, …, 128 |
+| 129–256 | 16 | 144, 160, …, 256 |
+| 257–512 | 32 | 288, 320, …, 512 |
+
+That gives 8 classes per doubling of N, so sites with n to 2n localizations need at most 8 compilations and sites with 50 to 500 at most about 28, with padding always under 1/8. Each component's points are rounded the same way, and their count is fixed by the starting values and `spacing`: a ring has ceil(2πr / spacing) points, 105 at r = 50 nm and spacing 3 nm, class 112, which every starting r from 49.7 to 53.4 nm shares.
+
+**What compiles again**, one ring site of 101 localizations each time, after a first fit of 102 (class 104):
+
+| Change | Compilations of the fit | XLA compile time |
+| --- | --- | --- |
+| first fit of the process | 1, and about 20 small eager operations | 1.5 s |
+| N in a class already compiled | none | 0 |
+| N in a new class (90, class 96) | 1 | 0.8 s |
+| starting position (`x = 5`) | none | 0 |
+| starting r = 60 nm (126 points, class 128) | 1 | 1.5 s |
+| `freeze=("r",)` | 1 | 1.1 s |
+| `max_iter=300` | 1 | 0.9 s |
+| `background=False` | 1 | 0.9 s |
+| 2D instead of 3D | 1 | 0.8 s |
+| float32 | 1 | 0.8 s |
+
+**Cost per model.** A site in a new size class costs, beyond its fit and with tracing included, about 1.0 s for a ring, 1.2 s for a spherical cap, 1.4 s for a cap with a ring and 1.5 s for a double ring (tutorial sites). Through the SMAPpy plugin, 400 ring sites (93–127 localizations after the layer's filters) fell into 5 classes: 5 compilations of the fit, about 4 s in all, and 6 ms per site for the rest.
+
+**Kept only in the process.** The compiled fits live in the Python process, so every new process (a SMAPpy session, a MATLAB `pyenv` session) compiles again. For real data whose sites span 50 to 500 localizations that is up to about 28 compilations, 30–40 s per session and setup. JAX's persistent compilation cache (`jax_compilation_cache_dir`) would keep them on disk across processes; not done yet, and its saving is not measured.
+
 ## Float32 fits can stop early (found 2026-10-29, accepted the same day)
 
 As in LocMoFit.jl (its `NOTES.md`, known issue), BFGS can stop in float32 when the loss is unchanged in two successive iterations although the parameters still move (0.01–0.04 per step) and the largest gradient component is above `tol`: a mean loss of about 15 is resolved to about 1e-6 in float32. On 10 starts nudged by 1e-3 around the tutorial sites' moved start, fits stopped above `tol` on the ring 3, the cap 4 and the cap with ring 8 times out of 10 before task 2, and 8, 7 and 10 times after it; never on the double ring, and never in float64, the default. The loss then stays within about 1e-4 per localization of the optimum, and the parameters move by up to 0.5–0.9 (nm or the cap's units) against statistical errors of 1–12 nm.
