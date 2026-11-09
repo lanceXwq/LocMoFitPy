@@ -68,7 +68,33 @@ That gives 8 classes per doubling of N, so sites with n to 2n localizations need
 
 **Cost per model.** A site in a new size class costs, beyond its fit and with tracing included, about 1.0 s for a ring, 1.2 s for a spherical cap, 1.4 s for a cap with a ring and 1.5 s for a double ring (tutorial sites). Through the SMAPpy plugin, 400 ring sites (93–127 localizations after the layer's filters) fell into 5 classes: 5 compilations of the fit, about 4 s in all, and 6 ms per site for the rest.
 
-**Kept only in the process.** The compiled fits live in the Python process, so every new process (a SMAPpy session, a MATLAB `pyenv` session) compiles again. For real data whose sites span 50 to 500 localizations that is up to about 28 compilations, 30–40 s per session and setup. JAX's persistent compilation cache (`jax_compilation_cache_dir`) would keep them on disk across processes; not done yet, and its saving is not measured.
+**Kept only in the process.** The compiled fits live in the Python process, so every new process (a SMAPpy session, a MATLAB `pyenv` session) compiles again. For real data whose sites span 50 to 500 localizations that is up to about 28 compilations, 30–40 s per session and setup. The SMAPpy plugin keeps them on disk across sessions (next section).
+
+## Compilations kept on disk across SMAPpy sessions (2026-11-09)
+
+**The choice.** The SMAPpy plugin switches on JAX's persistent compilation cache before its first fit (`use_compilation_cache`): the folder `locmofit_jax_cache` in SMAPpy's configuration folder, and a minimum compile time of 0, since JAX's default (1 s) would skip most of our compilations. A folder already set in `JAX_COMPILATION_CACHE_DIR` is kept. `run_locmofit` does not do it, because both settings hold for the whole process and a library should not change them for its caller; MATLAB or a script gets the same by setting `JAX_COMPILATION_CACHE_DIR` and `JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0` in the environment.
+
+**What it saves.** Measured through SMAPpy (`ROIProject.evaluate`, as *Evaluate* runs it, the plugin unchanged and the cache switched on by those two environment variables), JAX 0.12.0.1, Apple M1 Pro, CPU, 3D, float64. Each file holds 200 ROIs: LocMoFit.jl's 20 accuracy-benchmark sites (15% background), 10 copies each, every copy a random 35–100% of its localizations so that the sites fall into many size classes. Every column is a new process:
+
+| 200 ROIs | No cache | Cache empty | Cache filled |
+| --- | --- | --- | --- |
+| Ring, whole run (3 repeats) | 17.7–19.4 s | 18.8–21.1 s | 8.8–9.2 s |
+| Ring, XLA compiling | 11.1–12.3 s | 12.2–13.6 s | 2.3–2.4 s |
+| SpCapRing, whole run (once) | 92.1 s | 97.6 s | 85.4 s |
+| SpCapRing, XLA compiling | 16.1 s | 18.1 s | 3.7 s |
+
+A second SpCapRing file (other copies of the sites, another grid), fitted in a new session with the cache the first file filled, compiled in 4.1 s instead of 16.7 s: 124 of its 176 compilations came from the cache, and the rest (size classes the first file had not reached) were added to it. The fitted values of every ROI were identical with and without the cache. Filling an empty cache costs about 1–2.5 s for the 200 rings (six interleaved pairs of sessions), once per JAX version (an update of JAX invalidates every entry). The two models' entries took 10 MB; JAX sets no size limit by default. So the saving is a fixed amount per session, about 0.6–0.9 s per setup and size class, and matters most for short sessions, quick fits and sites spread over many size classes; within a session the compiled fits are in memory anyway.
+
+**What it cannot save.** The cache's key is a hash of the lowered program (with the compile options, the JAX version and the device), so JAX traces and lowers the fit in every session to find the entry; only the XLA compile becomes a load from disk. Per size class with the cache filled (`run_locmofit`, tutorial sites):
+
+| | Trace | Lower | XLA compile → load |
+| --- | --- | --- | --- |
+| Ring | 0.21 s | 0.08 s | 0.78 → 0.16 s |
+| SpCapRing | 0.38 s | 0.12 s | 1.17 → 0.24 s |
+
+**Saving compiled programs ourselves, not done.** Serializing the executable (`jit(f).lower(...).compile()` and `jax.experimental.serialize_executable`) and loading it in a later session would skip tracing and lowering too, a further 0.3–0.5 s per size class (not measured). But the key would then be ours, built before tracing from what we know determines the program: the `FitStatic`, the argument shapes and dtypes, `max_iter`, `tol`, `history`, the JAX version, the device, and the version of LocMoFitPy's own code. An editable install changes the code without changing any version, and a key that misses a change runs the old program silently, an accuracy risk; it also needs code to write, find and prune the files, on an experimental API. JAX's own key is the program itself, so a stale entry can never be loaded. `jax.export` (the lowered program, which skips only tracing) has the same key problem.
+
+**The folder.** SMAPpy's configuration folder, which `SMAPPY_CONFIG_DIR` redirects (so tests get their own), not LocMoFitPy's package folder: that belongs to the installer (every update from GitHub reinstalls it with `pip install --upgrade`), with an editable install it is the git checkout, and it may not be writable. The platform's cache folder (`~/Library/Caches`, `~/.cache`, `%LOCALAPPDATA%`) would be the proper place for files that can be rebuilt, but choosing it needs per-platform code or `platformdirs`, a new dependency; the configuration folder's drawback is that backups of the settings include the cache.
 
 ## Float32 fits can stop early (found 2026-10-29, accepted the same day)
 

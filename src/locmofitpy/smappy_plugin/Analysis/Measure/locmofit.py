@@ -4,6 +4,8 @@ Part of LocMoFitPy, outside SMAPpy's package: SMAPpy scans this folder (`locmofi
 
 **Updates.** LocMoFitPy, this file with it, comes from the head of its GitHub repository's main branch: before the first fit of each SMAPpy session unless SMAPpy's automatic update check is off (*Preferences > General*); with it off, LocMoFitPy is updated by installing it into SMAPpy's Python again, as at the start. The new version is installed before anything of LocMoFitPy is imported, so the fit runs on it at once. An editable install (a checkout) is never updated here. This file reads only the standard library and SMAPpy until the fit, because what it imports of LocMoFitPy would stay the old version until SMAPpy restarts.
 
+**Compilations.** A fit compiles once per setup and size class in a session (LocMoFitPy's `NOTES.md`). Those compilations are kept on disk in JAX's persistent compilation cache, in the folder `locmofit_jax_cache` of SMAPpy's configuration folder, so a later session loads them instead of compiling again; a folder already set in JAX_COMPILATION_CACHE_DIR is kept.
+
 **Per region.** `per_region = True`: it runs on the view, once per ROI, or once per cluster, and the fitted values become columns of the region table, so *Filter ROIs*, *Sort ROIs*, histograms and *Regions to column* use them.
 
 **The data.** Positions are `x_nm`, `y_nm` and, with `z_err_nm`, `z_nm` (a 3D fit; otherwise 2D, from the first two coordinates of the model). The precisions are `x_err_nm` and `y_err_nm` where the table has them, else `xy_err_nm` for both. The table is the one the layer shows: blinks on a grouped layer, localizations on an ungrouped one.
@@ -28,6 +30,7 @@ from importlib import metadata
 
 import numpy as np
 from smappy import updates
+from smappy.config import config_dir
 from smappy.plugins import Context, Plot, Plugin, Result, param, register
 
 MODELS = ["Ring", "SphericalCap", "DoubleRing", "SpCapRing"]
@@ -39,6 +42,7 @@ BRANCH = "main"
 HEAD = f"https://api.github.com/repos/lanceXwq/LocMoFitPy/commits/{BRANCH}"
 MISSING = f"LocMoFit needs LocMoFitPy: install it into SMAPpy's Python from git+{REPOSITORY}"
 _asked = False  # whether this session has asked GitHub yet
+JAX_CACHE = "locmofit_jax_cache"  # a folder in SMAPpy's configuration folder
 
 
 def installed_source() -> tuple[bool, str | None, bool]:
@@ -91,6 +95,17 @@ def update_locmofitpy(report) -> str:
         )
     importlib.invalidate_caches()
     return f"LocMoFitPy {newest[:7]} installed"
+
+
+def use_compilation_cache() -> None:
+    """Keep the compiled fits on disk across SMAPpy sessions, in JAX's persistent compilation cache in SMAPpy's configuration folder, unless a cache folder is already set (JAX_COMPILATION_CACHE_DIR). Every compilation is kept, since JAX's default keeps only those over 1 s. Both settings are JAX's and hold for the whole process; JAX reads them at its first compilation, so they must come before any fit. Called after the update, which may upgrade JAX with LocMoFitPy."""
+    import jax
+
+    if jax.config.jax_compilation_cache_dir is None:
+        jax.config.update(
+            "jax_compilation_cache_dir", str(config_dir() / JAX_CACHE)
+        )
+        jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
 
 
 def parse_values(text: str) -> dict[str, float]:
@@ -361,6 +376,7 @@ class LocMoFit(Plugin):
                 ctx.report(f"LocMoFitPy was not updated: {error}")
         if importlib.util.find_spec("locmofitpy") is None:
             raise ValueError(MISSING)
+        use_compilation_cache()
         from locmofitpy import run_locmofit
 
         positions, precisions = site_arrays(ctx.selection.apply(ctx.locs))
