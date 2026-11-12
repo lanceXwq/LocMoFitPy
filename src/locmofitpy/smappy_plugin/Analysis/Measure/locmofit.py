@@ -10,9 +10,9 @@ Part of LocMoFitPy, outside SMAPpy's package: SMAPpy scans this folder (`locmofi
 
 **The data.** Positions are `x_nm`, `y_nm` and, with `z_err_nm`, `z_nm` (a 3D fit; otherwise 2D, from the first two coordinates of the model). The precisions are `x_err_nm` and `y_err_nm` where the table has them, else `xy_err_nm` for both. The table is the one the layer shows: blinks on a grouped layer, localizations on an ungrouped one.
 
-**The field of view.** The background is uniform over the field of view, so its volume enters the likelihood. In an ROI it is the ROI's area, times in 3D a depth: the ROI's size, as SMAP's LocMoFit takes its height, or *depth*; on the view, without an ROI, LocMoFitPy's default, the localizations' bounding box.
+**The field of view.** The background is uniform over the field of view, so its volume enters the likelihood. It is what the localizations were cut to: in a run per ROI the ROI, and on the view the ROI drawn on it and, while plugins use the slab, the 3D view's slab. Its area is the ROI's, else the slab's footprint; in 3D times a depth: *depth*, or for 0 the slab's thickness, else the ROI's size, as SMAP's LocMoFit takes its height. With neither (a cluster, or the view uncut), LocMoFitPy's default, the localizations' bounding box.
 
-**Starting values.** The model's defaults, with the position at the ROI's centre (z at the localizations' median), and whatever *start values* name.
+**Starting values.** The model's defaults, with the position at the ROI's center (z at the localizations' median), and whatever *start values* name.
 
 **Values.** Each component in the world frame: its position `x`, `y`, `z`, axis angles `theta`, `phi` (radians) and shape (`r`; or `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), with the component's number appended for a composite (`r1`, `r2`); then `sigma`, `signal_fraction`, the components' shares `w1`, `w2`, …, `loss`, `iterations` and `converged`.
 """
@@ -32,6 +32,7 @@ import numpy as np
 from smappy import updates
 from smappy.config import config_dir
 from smappy.plugins import Context, Plot, Plugin, Result, param, register
+from smappy.view3d import Slab
 
 MODELS = ["Ring", "SphericalCap", "DoubleRing", "SpCapRing"]
 FIGURE_POINTS = 3000
@@ -184,17 +185,41 @@ def region_area(region) -> float:
     )
 
 
+def cut_to(ctx: Context) -> tuple:
+    """What the localizations were cut to: the ROI (a `smappy.regions.Region`) and the 3D view's slab (a `smappy.view3d.Slab`), each None when it did not cut them. In a run per ROI, that ROI (the slab cuts only the view); on the view, the ROI drawn on it and, while plugins use the slab, the slab: `ctx.selection.roi` then names the slab, and the drawn ROI is the session's. Neither for a cluster, and neither when the view's axes are not the positions in nm (photons against frame, say, or a scaled axis), since the ROI and the slab are then in other units."""
+    if ctx.region is not None:
+        return ctx.region, None
+    cut = ctx.selection.roi
+    session = ctx.session
+    if cut is None or (
+        session is not None
+        and not session.axes(ctx.selection.layer).is_default
+    ):
+        return None, None
+    if isinstance(cut, Slab):
+        return (None if session is None else session.roi), cut
+    return cut, None
+
+
 def field_of_view(
-    region, positions: np.ndarray, depth: float = 0.0
+    region, slab, positions: np.ndarray, depth: float = 0.0
 ) -> float | None:
-    """The background's field of view: the ROI's area, times in 3D a depth -- `depth` (nm), or 0 for the ROI's size (a circle's diameter, else the square root of its area), the height SMAP's LocMoFit gives its cylinder. The localizations' own z span is a poor estimate: their axial precision is heavy-tailed, so it overestimates the depth (a median of 419 nm on LocMoFit.jl's benchmark ring sites, whose background fills 300 nm). None without an ROI (LocMoFitPy then takes the localizations' bounding box)."""
-    if region is None:
+    """The background's field of view: the ROI's area, else the slab's footprint, times in 3D a depth -- `depth` (nm), or for 0 the slab's thickness when the slab cut the localizations, else the ROI's size (a circle's diameter, else the square root of its area), the height SMAP's LocMoFit gives its cylinder. The localizations' own z span is a poor estimate: their axial precision is heavy-tailed, so it overestimates the depth (a median of 419 nm on LocMoFit.jl's benchmark ring sites, whose background fills 300 nm). With both an ROI and a slab, the ROI is taken to lie inside the slab's footprint, as it does while the slab follows the ROI. None when neither cut the localizations (LocMoFitPy then takes their bounding box)."""
+    if region is None and slab is None:
         return None
-    area = region_area(region)
+    area = (
+        region_area(region)
+        if region is not None
+        else float(slab.size[0] * slab.size[1])
+    )
     if positions.shape[1] == 2:
         return area
+    if depth > 0:
+        return area * depth
+    if slab is not None:
+        return area * float(slab.size[2])
     size = 2 * region.radius if region.kind == "circle" else math.sqrt(area)
-    return area * (depth if depth > 0 else size)
+    return area * size
 
 
 def start_values(
@@ -331,7 +356,7 @@ class LocMoFitSettings:
         label="depth",
         unit="nm",
         min=0.0,
-        help="the field of view's depth in 3D; 0: the ROI's size",
+        help="the field of view's depth in 3D; 0: the slab's thickness when the slab cuts the localizations, else the ROI's size",
     )
     dtype: str = param(
         "float64",
@@ -384,7 +409,7 @@ class LocMoFit(Plugin):
             raise ValueError(
                 f"{len(positions)} localizations, too few for a fit"
             )
-        region = ctx.region
+        region, slab = cut_to(ctx)
         init = start_values(
             settings.model, region, positions, parse_values(settings.start)
         )
@@ -403,7 +428,9 @@ class LocMoFit(Plugin):
             spacing=settings.spacing_nm,
             dtype=settings.dtype,
             background=settings.background,
-            fov_volume=field_of_view(region, positions, settings.depth_nm),
+            fov_volume=field_of_view(
+                region, slab, positions, settings.depth_nm
+            ),
         )
         values = flat_values(result)
         points = np.asarray(result["model_points"])[:, : positions.shape[1]]
