@@ -44,6 +44,7 @@ def fit_problem(
     freeze: str | Sequence[str] = (),
     tie: Mapping[str, str] | Sequence[tuple[str, str]] | None = None,
     spacing: float = 3.0,
+    point_params: Mapping[str, float] | None = None,
     dtype: Any = "float64",
     background: bool = True,
     fov_volume: float | None = None,
@@ -87,7 +88,15 @@ def fit_problem(
     pmap = ParameterMap(theta0, freeze, tie_pairs(tie))
     u0 = pmap.free_parameters(theta0)
     theta0 = pmap.full_parameters(u0)  # with the ties applied
-    unit = model.unit_model(theta0, starts, spacing=spacing, dtype=dtype.type)
+    # the values the points are generated from: point_params in place of the starting values, with the ties applied
+    points_from = theta0
+    if point_params:
+        points_from = apply_init(theta0, dict(point_params))
+        pm = ParameterMap(points_from, freeze, tie_pairs(tie))
+        points_from = pm.full_parameters(pm.free_parameters(points_from))
+    unit = model.unit_model(
+        points_from, starts, spacing=spacing, dtype=dtype.type
+    )
 
     sizes = [len(points) for points, _ in unit]
     ends = np.cumsum(sizes)
@@ -125,6 +134,7 @@ def run_locmofit(
     max_iter: int = 200,
     tol: float = 1e-4,
     spacing: float = 3.0,
+    point_params: Mapping[str, float] | None = None,
     dtype: Any = "float64",
     background: bool = True,
     fov_volume: float | None = None,
@@ -140,6 +150,7 @@ def run_locmofit(
     - `tie`: `{target: source}` (or pairs), such as `{"r2": "r1"}`: the target takes the source's value throughout.
     - `max_iter`, `tol`: the fit stops when no component of the loss's gradient exceeds `tol` (default 1e-4, reachable in float32), or after `max_iter` iterations.
     - `spacing`: the distance between model points, in nm. The points are generated once, from the starting values.
+    - `point_params`: values that replace the starting values only for generating the points (with the ties applied), such as `{"r": 50}`: then the number of points comes from a ring of radius 50 nm, whatever the starting radius. Only the shape parameters that set the number of points matter: a ring's `r` and a cap's `s` (`r1`, `s2`, … in a composite). Unknown names are ignored with a warning. Sites fitted with the same values have the same number of points, so starting values that differ from site to site do not add compilations (NOTES.md).
     - `dtype`: `"float64"` (default, since 2026-10-29) or `"float32"`. float64 sets `jax_enable_x64`, which is process-global and stays on for the rest of the process (a MATLAB `pyenv` session too). float32 is faster on large models (a cap fit about 1.7×) but can stop early, before the gradient reaches `tol`, with the loss up to about 1e-4 per localization above the optimum (a known issue: NOTES.md).
     - `background`: whether some localizations are background, uniform over the field of view; their share is 1 − logistic(`logit_prob`), fitted from 0.1.
     - `fov_volume`: the volume (area, in 2D) of the field of view, in nm³ (nm²); default the localizations' bounding box, a little smaller.
@@ -156,6 +167,7 @@ def run_locmofit(
         freeze=freeze,
         tie=tie,
         spacing=spacing,
+        point_params=point_params,
         dtype=dtype,
         background=background,
         fov_volume=fov_volume,

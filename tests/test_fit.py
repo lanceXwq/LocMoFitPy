@@ -124,6 +124,59 @@ def test_run_locmofit():
     assert sum(t["weights"]) == pytest.approx(1) and len(t["weights"]) == 2
 
 
+def test_point_params():
+    # the number of points comes from point_params (ceil(2πr/spacing) for a ring, ceil(4πs²/spacing²) for a cap); the starting values from init_params, frozen or not
+    _, model, theta, starts = CASES[0]
+    locs, precs = make_data(model, theta, starts, every=3)
+
+    def npoints(p):
+        return tuple(len(points) for points, _ in p.unit_model)
+
+    kw = dict(dtype="float64", spacing=3.0)
+    p80, u80 = lm.fit_problem(
+        lm.Ring(), locs, precs, init_params={"r": 80.0}, **kw
+    )
+    p50, u50 = lm.fit_problem(
+        lm.Ring(),
+        locs,
+        precs,
+        init_params={"r": 80.0},
+        point_params={"r": 50.0},
+        **kw,
+    )
+    assert npoints(p80) == (math.ceil(2 * math.pi * 80 / 3),)
+    assert npoints(p50) == (math.ceil(2 * math.pi * 50 / 3),)
+    assert np.array_equal(u50, u80)
+    assert p50.parameter_map.full_parameters(u50)["r"] == 80
+    pf, uf = lm.fit_problem(
+        lm.Ring(),
+        locs,
+        precs,
+        init_params={"r": 80.0},
+        freeze=("r",),
+        point_params={"r": 50.0},
+        **kw,
+    )
+    assert npoints(pf) == (math.ceil(2 * math.pi * 50 / 3),)
+    assert pf.parameter_map.full_parameters(uf)["r"] == 80
+    pc, _ = lm.fit_problem(
+        lm.SphericalCap(), locs, precs, point_params={"s": 30.0}, **kw
+    )
+    assert npoints(pc) == (math.ceil(4 * math.pi * 30**2 / 3**2),)
+    # with a tie, the target's points follow the source's value
+    pd, ud = lm.fit_problem(
+        lm.DoubleRing(),
+        locs,
+        precs,
+        init_params={"r1": 70.0},
+        tie={"r2": "r1"},
+        point_params={"r1": 40.0},
+        **kw,
+    )
+    assert npoints(pd) == (math.ceil(2 * math.pi * 40 / 3),) * 2
+    assert pd.parameter_map.full_parameters(ud)["r1"] == 70
+
+
 # Fits of the tutorial data (one simulated site per model, 15% background, a 300 nm field of view) from the moved start, in float64. Every error must stay within 4× the scatter of one fit that LocMoFit.jl's accuracy benchmark measured in the same setting (LocMoFit.jl/benchmarks/accuracy/prior_5_2_2026-10-28.txt, as LocMoFit.jl's test/fit.jl); an axis's error within its mean plus 4× its scatter. And the fit must equal LocMoFit.jl's on the same data, which uses the same algorithm (tests/data/julia_fits.json).
 
 

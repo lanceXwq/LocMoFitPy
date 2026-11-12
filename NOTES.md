@@ -49,7 +49,7 @@ Fitting many sites, as SMAPpy's per-region steps do, compiles once per setup and
 | 129–256 | 16 | 144, 160, …, 256 |
 | 257–512 | 32 | 288, 320, …, 512 |
 
-That gives 8 classes per doubling of N, so sites with n to 2n localizations need at most 8 compilations and sites with 50 to 500 at most about 28, with padding always under 1/8. Each component's points are rounded the same way, and their count is fixed by the starting values and `spacing`: a ring has ceil(2πr / spacing) points, 105 at r = 50 nm and spacing 3 nm, class 112, which every starting r from 49.7 to 53.4 nm shares.
+That gives 8 classes per doubling of N, so sites with n to 2n localizations need at most 8 compilations and sites with 50 to 500 at most about 28, with padding always under 1/8. Each component's points are rounded the same way, and their count is fixed by the starting values (or `point_params`) and `spacing`: a ring has ceil(2πr / spacing) points, 105 at r = 50 nm and spacing 3 nm, class 112, which every starting r from 49.7 to 53.4 nm shares.
 
 **What compiles again**, one ring site of 101 localizations each time, after a first fit of 102 (class 104):
 
@@ -68,7 +68,26 @@ That gives 8 classes per doubling of N, so sites with n to 2n localizations need
 
 **Cost per model.** A site in a new size class costs, beyond its fit and with tracing included, about 1.0 s for a ring, 1.2 s for a spherical cap, 1.4 s for a cap with a ring and 1.5 s for a double ring (tutorial sites). Through the SMAPpy plugin, 400 ring sites (93–127 localizations after the layer's filters) fell into 5 classes: 5 compilations of the fit, about 4 s in all, and 6 ms per site for the rest.
 
-**Kept only in the process.** The compiled fits live in the Python process, so every new process (a SMAPpy session, a MATLAB `pyenv` session) compiles again. For real data whose sites span 50 to 500 localizations that is up to about 28 compilations, 30–40 s per session and setup. The SMAPpy plugin keeps them on disk across sessions (next section).
+**Kept only in the process.** The compiled fits live in the Python process, so every new process (a SMAPpy session, a MATLAB `pyenv` session) compiles again. For real data whose sites span 50 to 500 localizations that is up to about 28 compilations, 30–40 s per session and setup. The SMAPpy plugin keeps them on disk across sessions (the section after next).
+
+## One point count for sites with different starts (`point_params`, 2026-11-12)
+
+**The problem.** The number of model points comes from the starting values (a ring's ceil(2πr / spacing)) and is a shape of the compiled fit. Starting values estimated from each site's localizations, which an automatic start for the SMAPpy plugin would use, give each site its own point count, so the size classes of the points multiply those of N.
+
+**The option.** `point_params` (also in LocMoFit.jl, for parity) replaces the starting values only for generating the points. Sites fitted with the same `point_params` have one point count per component, as sites that all start from the defaults have. LocMoFit.jl does not need it for speed: Julia compiles per argument type, not per array length, and after the first fit of a ring had compiled (43 s, with Enzyme) a fit took 2–4 ms for every point count from 63 to 168.
+
+**Measured** with JAX 0.12.0.1, Apple M1 Pro, CPU, 3D, float64, one fresh process per row, no persistent cache. DynMoSim sites, each with its own true parameters (200 rings: r 30–80 nm, tilt up to 60°; 100 caps: s 30–60 nm, κ′ 0.1–0.9, tilt up to 45°; the center up to 30 nm from the ROI center laterally and 60 nm axially; 15% background), each fitted once. The estimated start comes from moments of the localizations (a scratch test, not in the package):
+
+| | Point counts | Compiled fits | XLA compiling | Session |
+| --- | --- | --- | --- | --- |
+| Ring, start at the defaults (r = 50 nm) | 1 | 8 | 7.4 s | 13.6 s |
+| Ring, start estimated per site | 96 | 60 | 50.6 s | 76.7 s |
+| Ring, the same start, `point_params={"r": 50}` | 1 | 8 | 7.3 s | 12.7 s |
+| Cap, start at the defaults (s = 50 nm) | 1 | 4 | 4.1 s | 30.5 s |
+| Cap, start estimated per site | 98 | 43 | 40.7 s | 73.5 s |
+| Cap, the same start, `point_params={"s": 50}` | 1 | 4 | 3.9 s | 22.6 s |
+
+The fits that reached the optimum gave the same values with a point count per site and with one for all sites (position error median 1.86 nm and r error rms 0.84 nm for the rings, s error rms 1.13 nm for the caps), although one count for all puts the points of an 80 nm ring 4.8 nm apart and those of a 30 nm ring 1.8 nm apart.
 
 ## Compilations kept on disk across SMAPpy sessions (2026-11-09)
 
