@@ -22,7 +22,7 @@ START_MAX_KAPPA = (
 
 
 def estimate_start(model, locs, loc_precisions, axis=None) -> dict[str, float]:
-    """Starting values for `model` estimated from one site's localizations ((N, D) positions and precisions, nm), as `init_params` takes them: in 3D the position, the starting axis (`theta`, `phi`) and the shape of a `Ring` or a `SphericalCap`, and for a composite of two of them sharing an axis also the second component's shape and distance along the axis (`z2`) and the shares (`omega2`); in 2D only the position. `axis`, a unit vector or None, is a starting axis given by the user, along which the rest is estimated; with None the axis is estimated too. Other models get an empty dict, so they start from their defaults. Values that come out undefined (too few localizations) are left out."""
+    """Starting values for `model` estimated from one site's localizations ((N, D) positions and precisions, nm), as `init_params` takes them: in 3D the position, the starting axis (`theta`, `phi`) and the shape of a `Ring` or a `SphericalCap`, and for a composite of two of them sharing an axis also the second component's shape and distance along the axis (`z2`) and the shares (`omega2`); in 2D only the position. `axis`, a unit vector or None, is a starting axis given by the user, along which the rest is estimated; with None the axis is estimated too. Any other model gets only the position of its component 1, at the weighted center of the localizations, so that its fit starts at the site rather than at the origin; the rest starts from its defaults. Values that come out undefined (too few localizations) are left out."""
     locs = np.asarray(locs, dtype=float)
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
         if isinstance(model, (Ring, SphericalCap)):
@@ -34,7 +34,7 @@ def estimate_start(model, locs, loc_precisions, axis=None) -> dict[str, float]:
             n = principal_axis(f) if axis is None else np.asarray(axis, float)
             return finite_values(simple_start(model, f, n, axis is None))
         if not two_simple_parts(model):
-            return {}
+            return position_start(model, locs, loc_precisions)
         parts = model.components
         f = site_frame(locs, loc_precisions)
         if f is None:
@@ -76,6 +76,23 @@ def estimate_start(model, locs, loc_precisions, axis=None) -> dict[str, float]:
         return finite_values(start)
 
 
+def position_start(model, locs, loc_precisions) -> dict[str, float]:
+    """The position of component 1 at the weighted center of the localizations."""
+    f = site_frame(locs, loc_precisions)
+    if f is None:
+        return {}
+    return finite_values(
+        dict(zip(position_names(model, locs.shape[1]), f.center))
+    )
+
+
+def position_names(model, D: int) -> tuple[str, ...]:
+    names = (
+        ("x1", "y1", "z1") if isinstance(model, Composite) else ("x", "y", "z")
+    )
+    return names[:D]
+
+
 def two_simple_parts(model) -> bool:
     return (
         isinstance(model, Composite)
@@ -91,7 +108,7 @@ def start_names(model, D: int) -> tuple[str, ...]:
             return ("x", "y")
         return ("x", "y", "z", *model.shape_parameters(), "theta", "phi")
     if not two_simple_parts(model):
-        return ()
+        return position_names(model, D)
     if D == 2:
         return ("x1", "y1")
     s1, s2 = (
