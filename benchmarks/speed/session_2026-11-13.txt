@@ -1,0 +1,9 @@
+Python 3.14.10, arm
+import: 1.0 s, peak memory 137 MB
+Ring 3D float64            first fit   1.6 s, then    7.2 ms, peak memory 303 MB
+SphericalCap 3D float64    first fit   1.6 s, then  338.8 ms, peak memory 480 MB
+DoubleRing 3D float64      first fit   1.8 s, then   28.3 ms, peak memory 480 MB
+SpCapRing 3D float64       first fit   2.0 s, then  142.1 ms, peak memory 499 MB
+Ring 2D float64            first fit   1.1 s, then    6.2 ms, peak memory 529 MB
+Ring 3D float32            first fit   1.2 s, then    4.9 ms, peak memory 562 MB
+total since start: 13.1 s
