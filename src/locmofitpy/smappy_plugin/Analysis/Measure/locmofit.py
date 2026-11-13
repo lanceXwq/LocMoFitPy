@@ -12,7 +12,7 @@ Part of LocMoFitPy, outside SMAPpy's package: SMAPpy scans this folder (`locmofi
 
 **The field of view.** The background is uniform over the field of view, so its volume enters the likelihood. It is what the localizations were cut to: in a run per ROI the ROI, and on the view the ROI drawn on it and, while plugins use the slab, the 3D view's slab. Its area is the ROI's, else the slab's footprint; in 3D times a depth: *depth*, or for 0 the slab's thickness, else the ROI's size, as SMAP's LocMoFit takes its height. With neither (a cluster, or the view uncut), LocMoFitPy's default, the localizations' bounding box.
 
-**Starting values.** The model's defaults, with the position at the ROI's center (z at the localizations' median), and whatever *start values* name.
+**Starting values.** Whatever *start values* name; LocMoFitPy estimates the rest from the localizations (in 3D the position, the axis and the shape, in 2D the position) or, where it has no estimate, starts from the model's defaults. The model points are generated from the model's default sizes, or the sizes *start values* name, not from the estimated ones, so that every site has the same number of points and the fits compile once per size class rather than once per estimated size.
 
 **Values.** Each component in the world frame: its position `x`, `y`, `z`, axis angles `theta`, `phi` (radians) and shape (`r`; or `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), with the component's number appended for a composite (`r1`, `r2`); then `sigma`, `signal_fraction`, the components' shares `w1`, `w2`, …, `loss`, `iterations` and `converged`.
 """
@@ -222,23 +222,16 @@ def field_of_view(
     return area * size
 
 
-def start_values(
-    model: str, region, positions: np.ndarray, given: dict[str, float]
-) -> dict[str, float]:
-    """The position at the ROI's centre (z at the localizations' median), under the model's own name for it (`x` or `x1`), then what the user gave."""
+def point_values(model: str, given: dict[str, float]) -> dict[str, float]:
+    """The sizes the model points are generated from (LocMoFitPy's `point_params`): the model's default radii and scales (`r`, `s`, `r1`, `s2`, …), or those the user gave."""
     from locmofitpy import get_model
 
-    names = get_model(model).default_parameters()
-    keys = ("x", "y", "z") if "x" in names else ("x1", "y1", "z1")
-    center = (
-        region.center
-        if region is not None
-        else np.median(positions[:, :2], axis=0)
-    )
-    start = {keys[0]: float(center[0]), keys[1]: float(center[1])}
-    if positions.shape[1] == 3:
-        start[keys[2]] = float(np.median(positions[:, 2]))
-    return {**start, **given}
+    sizes = {
+        k: v
+        for k, v in get_model(model).default_parameters().items()
+        if k.rstrip("0123456789") in ("r", "s")
+    }
+    return {k: given.get(k, v) for k, v in sizes.items()}
 
 
 def flat_values(result: dict) -> dict[str, float]:
@@ -324,7 +317,7 @@ class LocMoFitSettings:
         "",
         label="start values",
         kind="text",
-        help="name=value, ...: replaces the defaults; the position starts at the ROI's centre",
+        help="name=value, ...: replaces the values estimated from the localizations",
     )
     freeze: str = param(
         "",
@@ -410,9 +403,7 @@ class LocMoFit(Plugin):
                 f"{len(positions)} localizations, too few for a fit"
             )
         region, slab = cut_to(ctx)
-        init = start_values(
-            settings.model, region, positions, parse_values(settings.start)
-        )
+        given = parse_values(settings.start)
         ctx.report(
             f"fitting {settings.model} to {len(positions)} localizations"
         )
@@ -420,7 +411,8 @@ class LocMoFit(Plugin):
             settings.model,
             positions,
             precisions,
-            init_params=init,
+            init_params=given,
+            point_params=point_values(settings.model, given),
             freeze=parse_names(settings.freeze),
             tie=parse_ties(settings.tie) or None,
             max_iter=settings.max_iter,
