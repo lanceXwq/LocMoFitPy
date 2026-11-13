@@ -1,6 +1,6 @@
-# LocMoFit.jl's fits of the tutorial data (notebooks/data, copies of LocMoFit.jl's examples/data) from the moved start of LocMoFit.jl's test/fit.jl, in Float64: the reference for tests/test_fit.py's parity test. Run from the LocMoFitPy folder:
+# LocMoFit.jl's fits of the tutorial data (notebooks/data, copies of LocMoFit.jl's examples/data) from the moved start of LocMoFit.jl's test/fit.jl, in Float64, and its starting values estimated from the same data (estimate_start): the references for the parity tests of tests/test_fit.py and tests/test_start.py. Run from the LocMoFitPy folder:
 #     julia --project=../LocMoFit.jl tests/data/julia_fits.jl
-# Writes tests/data/julia_fits.json.
+# Writes tests/data/julia_fits.json and tests/data/julia_starts.json.
 using LocMoFit, Printf
 
 parsefield(s) = s == "true" ? 1.0 : s == "false" ? 0.0 : parse(Float64, s)
@@ -19,7 +19,7 @@ function moved(p)
 end
 
 const DATA = joinpath(@__DIR__, "..", "..", "notebooks", "data")
-entries = String[]
+entries, starts = String[], String[]
 for (case, model, D) in (("ring", "Ring", 3), ("ring2D", "Ring", 2), ("double_ring", "DoubleRing", 3),
                          ("spcap", "SphericalCap", 3), ("spcap_ring", "SpCapRing", 3))
     d = readcsv(joinpath(DATA, "$case.csv"))
@@ -29,6 +29,8 @@ for (case, model, D) in (("ring", "Ring", 3), ("ring2D", "Ring", 2), ("double_ri
     precs = permutedims(reduce(hcat, [d[c] for c in cols[2]]))
     init, freeze = moved(t), D == 2 ? (:z,) : ()
     D == 2 && (init = merge(init, (z=t.z,)))
+    e = LocMoFit.estimate_start(LocMoFit.build_model(model), locs, precs, nothing)
+    push!(starts, @sprintf("  \"%s\": {%s}", case, join([@sprintf("\"%s\": %.17g", k, v) for (k, v) in pairs(e)], ", ")))
     r = run_locmofit(model, locs, precs; init_params=init, freeze, dtype=Float64, fov_volume=300.0^D)
     params = join([@sprintf("\"%s\": %.17g", k, v) for (k, v) in pairs(r.parameters)], ", ")
     push!(entries, @sprintf("  \"%s\": {\"iterations\": %d, \"loss\": %.17g, \"parameters\": {%s}}", case,
@@ -36,4 +38,7 @@ for (case, model, D) in (("ring", "Ring", 3), ("ring2D", "Ring", 2), ("double_ri
 end
 open(joinpath(@__DIR__, "julia_fits.json"), "w") do io
     println(io, "{\n", join(entries, ",\n"), "\n}")
+end
+open(joinpath(@__DIR__, "julia_starts.json"), "w") do io
+    println(io, "{\n", join(starts, ",\n"), "\n}")
 end

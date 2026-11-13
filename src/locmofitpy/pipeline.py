@@ -15,8 +15,9 @@ from jax.typing import ArrayLike
 
 from .bfgs import bfgs
 from .loss import FitStatic, fit_data, loss_value, parameters
-from .models import get_model
+from .models import Composite, get_model
 from .parameters import ParameterMap, apply_init, freeze_names, tie_pairs
+from .start import axis_vector, estimate_start, start_names
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ def fit_problem(
     fov_volume: float | None = None,
     signal_prior: tuple[float, float] | None = (5, 2),
 ) -> tuple[Problem, jax.Array]:
-    """Everything a fit needs: the `Problem` for `make_loss` and the free parameters `u0` to start from. The keywords are those of `run_locmofit`."""
+    """Everything a fit needs: the `Problem` for `make_loss` and the free parameters `u0` to start from, with what `init_params` leaves open estimated from the localizations (`start.estimate_start`). The keywords are those of `run_locmofit`."""
     dtype = np.dtype(dtype)
     if dtype == np.float64:
         jax.config.update("jax_enable_x64", True)
@@ -75,6 +76,25 @@ def fit_problem(
         raise ValueError(
             f"theta and phi only set the starting axis, {frozen_axes}; to keep the orientation, freeze its chart coordinates (vx, vy, or vxk, vyk for component k)"
         )
+    # what init_params leaves open, frozen and tied parameters excepted, starts from the data (LocMoFit.jl's derivations/derivation.qmd), along the starting axis of component 1 if it is given or its orientation frozen
+    theta_a, phi_a = axes[0]
+    chart = ("vx1", "vy1") if isinstance(model, Composite) else ("vx", "vy")
+    given_axis = (
+        theta_a in init or phi_a in init or any(k in freeze for k in chart)
+    )
+    axis = (
+        axis_vector(float(init.get(theta_a, 0.0)), float(init.get(phi_a, 0.0)))
+        if given_axis
+        else None
+    )
+    targets = {t for t, _ in tie_pairs(tie)}
+
+    def isopen(k: str) -> bool:
+        return k not in init and k not in freeze and k not in targets
+
+    if any(isopen(k) for k in start_names(model, locs_np.shape[1])):
+        estimate = estimate_start(model, locs_np, prec_np, axis)
+        init = {**{k: v for k, v in estimate.items() if isopen(k)}, **init}
     starts = tuple(
         (float(init.get(a, 0.0)), float(init.get(b, 0.0))) for a, b in axes
     )
@@ -145,7 +165,7 @@ def run_locmofit(
 
     - `model`: a model (`Ring()`, `Composite(Ring(), SphericalCap())`, …) or a name (`"Ring"`, `"SphericalCap"`, `"DoubleRing"`, `"SpCapRing"`, case-insensitive, or an alias: `"spcap"`, `"npc"`).
     - `locs`, `loc_precisions`: (N, D) positions and per-axis precisions (standard deviations), in nm, with D ∈ {2, 3}. A 2D fit uses the first two coordinates of the model.
-    - `init_params`: starting values that replace the defaults (plus `logit_prob` with a background); unknown names are ignored with a warning. The starting axis is given as `theta`, `phi` (polar angle and azimuth; `thetak`, `phik` for component k, in component 1's frame for k > 1, default 0): the orientation is fitted as the coordinates `vx`, `vy` of a tangent chart centered on it, which start at 0.
+    - `init_params`: starting values; unknown names are ignored with a warning. A parameter not given starts from a value estimated from the localizations (`start.estimate_start`; LocMoFit.jl's derivations/derivation.qmd, Starting values from the data), unless it is frozen or tied: then, and wherever nothing is estimated, it starts from its default (plus `logit_prob` with a background). The estimate covers a `Ring`, a `SphericalCap` and a composite of two of them sharing an axis (such as `DoubleRing` and `SpCapRing`): in 3D the position, the axis and the shape, and for a composite the second component's distance along the axis (`z2`) and the shares (`omega2`); in 2D only the position. The blur and the signal fraction start from their defaults. The starting axis is given as `theta`, `phi` (polar angle and azimuth; `thetak`, `phik` for component k, in component 1's frame for k > 1, default 0): the orientation is fitted as the coordinates `vx`, `vy` of a tangent chart centered on it, which start at 0. A starting axis given for component 1, or its orientation frozen, is used instead of the estimated one, and the shape is estimated along it.
     - `freeze`: names of the parameters kept at their starting values (for the orientation, `vx` and `vy`).
     - `tie`: `{target: source}` (or pairs), such as `{"r2": "r1"}`: the target takes the source's value throughout.
     - `max_iter`, `tol`: the fit stops when no component of the loss's gradient exceeds `tol`, or after `max_iter` iterations. The default `tol`, 1e-4, leaves the parameters much closer to the optimum than their statistical error (a position within about 0.005 nm for a ring of 100 localizations, whose error is about 0.7 nm).

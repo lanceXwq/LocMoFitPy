@@ -89,6 +89,16 @@ That gives 8 classes per doubling of N, so sites with n to 2n localizations need
 
 The fits that reached the optimum gave the same values with a point count per site and with one for all sites (position error median 1.86 nm and r error rms 0.84 nm for the rings, s error rms 1.13 nm for the caps), although one count for all puts the points of an 80 nm ring 4.8 nm apart and those of a 30 nm ring 1.8 nm apart.
 
+## Starting values from the data (the port, 2026-11-13)
+
+The port of LocMoFit.jl's `estimate_start` (`start.py`); the choices, and the misses of the optimum it avoids, are in LocMoFit.jl's `NOTES.md` and its derivation. The direction search here scores each set of candidate axes at once, as (N, K) arrays, where LocMoFit.jl loops over the candidates; a Python loop was not tried.
+
+**Parity.** On the 500 sites of LocMoFit.jl's `benchmarks/start/` (generated there with DynMoSim), in 3D and in 2D, every estimate has the same names as LocMoFit.jl's and the same values to 2·10⁻¹⁴ relative, so the search picks the same candidate axis on every site (scratch comparison, 2026-11-13). The tests compare the tutorial sites (`tests/data/julia_starts.json`).
+
+**Cost**, median per site (3D, float64, Apple M1 Pro, CPU): 0.10 ms for a ring, 0.14 ms for a cap, 2.7 ms for a double ring and 4.9 ms for a cap and a ring, against 0.04, 0.15, 1.0 and 2.2 ms in LocMoFit.jl; small next to a fit.
+
+**Point counts.** A start estimated per site gives every site its own point count unless `point_params` is set, and so many more compilations (the section on `point_params`).
+
 ## Compilations kept on disk across SMAPpy sessions (2026-11-09)
 
 **The choice.** The SMAPpy plugin switches on JAX's persistent compilation cache before its first fit (`use_compilation_cache`): the folder `locmofit_jax_cache` in SMAPpy's configuration folder, and a minimum compile time of 0, since JAX's default (1 s) would skip most of our compilations. A folder already set in `JAX_COMPILATION_CACHE_DIR` is kept. `run_locmofit` does not do it, because both settings hold for the whole process and a library should not change them for its caller; MATLAB or a script gets the same by setting `JAX_COMPILATION_CACHE_DIR` and `JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0` in the environment.
@@ -121,4 +131,15 @@ As in LocMoFit.jl (its `NOTES.md`, known issue), BFGS can stop in float32 when t
 
 **Not caused by task 2.** On one set of 10 nudged starts per site (ring, cap, cap with ring), the current code stopped early 0, 6 and 9 times; with the gradient from autodiff instead of `_ll_bwd` 1, 6 and 8; with the value evaluated apart from the gradient (the old line search) 3, 5 and 9; without padding 2, 5 and 9. Each change only moves the rounding along the path, so the counts vary with the start, not with the optimization.
 
-**Accepted (the owner's decision).** float64 is the default; float32 is faster (a cap about 1.7×) and may stop up to about 1e-4 per localization above the optimum. Possible remedies, not done and to be made in both packages: finish a float32 fit with a few float64 iterations from where it stopped (exact; here it needs `jax_enable_x64`, which float64 fits switch on anyway), or subtract each localization's log density at the start from the loss so that its changes keep more digits (on the same starts: 0, 1 and 3 early stops; it helps but does not end them).
+**Far from the origin it is worse (measured 2026-11-13).** As in LocMoFit.jl (its `NOTES.md`, where the cause is described): float32 resolves a coordinate at 100 µm only to 0.0078 nm, and the model points are placed at the absolute coordinates. The accuracy benchmark's sites (LocMoFit.jl's, 20 per model, background, moved start) moved by 25 and 100 µm in x and y, against the float64 fit at the original position; each cell: the largest change of the position and of the axis, in units of the statistical error, and the median loss above the float64 optimum, per localization:
+
+| | float32 at the origin | at 25 µm | at 100 µm |
+| --- | --- | --- | --- |
+| Ring | 0.02, 0.01; 4·10⁻¹⁰ | 0.04, 0.01; 6·10⁻⁷ | 0.23, 0.04; 2·10⁻⁶ |
+| SphericalCap | 0.32, 0.31; 4·10⁻⁵ | 0.53, 0.50; 4·10⁻⁵ | 2.8, 2.7; 1.2·10⁻² |
+| DoubleRing | 0.13, 0.13; 7·10⁻⁵ | 0.14, 0.12; 6·10⁻⁵ | 0.66, 0.47; 1·10⁻⁴ |
+| SpCapRing | 0.34, 0.58; 1.4·10⁻⁴ | 0.38, 0.61; 6·10⁻⁵ | 0.43, 1.2; 8·10⁻⁴ |
+
+float64 fits moved by 100 µm changed by at most 6·10⁻⁷ nm. The cap fits at 100 µm stop up to 13.6 nm and 6.9° from the optimum and report `Success`, as in LocMoFit.jl; the SMAPpy plugin fits in float64 unless float32 is chosen.
+
+**Accepted (the owner's decision).** float64 is the default; float32 is faster (a cap about 1.7×) and may stop up to about 1e-4 per localization above the optimum. Possible remedies, not done and to be made in both packages: finish a float32 fit with a few float64 iterations from where it stopped (exact; here it needs `jax_enable_x64`, which float64 fits switch on anyway), or subtract each localization's log density at the start from the loss so that its changes keep more digits (on the same starts: 0, 1 and 3 early stops; it helps but does not end them), or subtract the site's position before the fit and add it back after, which would remove the loss of accuracy far from the origin but not the early stops at the origin.

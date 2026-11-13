@@ -14,8 +14,9 @@ These follow from the language and the callers (see the parity section of `../AG
 - **Optimizer implementation:** here a JAX transcription of the algorithm Optim.jl runs for LocMoFit.jl (`BFGS(linesearch=BackTracking())`: the same inverse-Hessian update and resets, LineSearches.jl's interpolation, the same stopping rules), jitted in `lax.while_loop`; there Optim.jl itself with Enzyme gradients. Both compute each trial point's value with its gradient (here in the line search, there `objective`).
 - **Return value:** a `dict` of NumPy arrays and Python scalars here, which MATLAB can convert, with `iterations` and `retcode` in place of LocMoFit.jl's Optimization.jl `result`, and `components` as a list of dicts. LocMoFit.jl returns a `NamedTuple` `(parameters, signal_fraction, weights, components, loss, model, unit_model, model_points, result, history)`; `history` is opt-in in both (`history=True`), here as `{"losses", "parameters"}` with one entry per iteration and the start.
 - **Float32 sums:** XLA sums the log-likelihood over localizations pairwise, LocMoFit.jl sequentially, so float32 fits take different paths. In both, float32 fits can stop early because the loss stops changing in its last bits (`NOTES.md` here and there).
+- **Starting values from the data:** the same steps as LocMoFit.jl's `estimate_start` (`start.py`, in NumPy), but the direction search scores all candidate axes of a set at once, as (N, K) arrays, where LocMoFit.jl loops over them; the sums differ in floating-point order, so the estimates agree to rounding (`tests/test_start.py` against `tests/data/julia_starts.json`).
 - **Compilation and padding:** `run_locmofit` here compiles one fit per model structure and size class, padding the localizations and points to `loss.bucket` sizes and masking the padding exactly; LocMoFit.jl compiles once per session and type. The likelihood's gradient is a closed-form custom VJP here and a hand-written Enzyme rule there, from the same formulas.
 
 ## LocMoFit.jl changes not yet ported
 
-None (2026-11-01).
+None (2026-11-13; the starting values from the data were ported that day).

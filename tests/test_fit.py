@@ -325,3 +325,23 @@ def test_fit_cap_with_ring():
     assert abs(r["signal_fraction"] - np.mean(signal)) < 4 * 0.01063
     assert abs(r["weights"][0] - np.mean(component[signal] == 1)) < 4 * 0.01279
     assert_parity("spcap_ring", r)
+
+
+@pytest.mark.parametrize(
+    "case, model",
+    [
+        ("ring", "Ring"),
+        ("spcap", "SphericalCap"),
+        ("double_ring", "DoubleRing"),
+        ("spcap_ring", "SpCapRing"),
+    ],
+)
+def test_fit_from_estimated_start(case, model):
+    # with init_params left out, every 3D tutorial fit starts from the data and reaches the optimum the truth-started fit reaches (or a better one): its loss no more than 0.01 per localization above, the threshold LocMoFit.jl's NOTES.md counts a miss by, while the wrong maxima found on simulated sites lay 0.04–0.7 above (as LocMoFit.jl's test/fit.jl)
+    locs, precs, truth, _, _ = tutorial(case, 3)
+    a = lm.run_locmofit(model, locs, precs, fov_volume=300.0**3)
+    t = lm.run_locmofit(
+        model, locs, precs, init_params=truth, fov_volume=300.0**3
+    )
+    assert a["retcode"] == "Success"
+    assert a["loss"] < t["loss"] + 0.01
