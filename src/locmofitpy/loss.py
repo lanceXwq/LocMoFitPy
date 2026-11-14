@@ -12,6 +12,8 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.special import logsumexp
 
+from .priors import log_prior
+
 
 def log_likelihood(
     locs,
@@ -254,8 +256,7 @@ class FitData(NamedTuple):
     base: Any
     S: Any
     log_volume: Any
-    signal_prior: Any  # (a, b), or zeros without a prior
-    share_prior: Any  # alpha of the Dirichlet prior on the shares; 1 without a prior, which makes its term 0
+    priors: tuple  # the numbers of each prior term (priors.prior_terms), as data, so that changing them does not recompile
 
 
 @dataclass(frozen=True)
@@ -268,7 +269,9 @@ class FitStatic:
         tuple[int, int], ...
     ]  # each component's rows among the (padded) points
     background: bool
-    has_prior: bool
+    priors: (
+        tuple  # each prior term as (kind, names, family) (priors.prior_terms)
+    )
     masked: bool
     model: Any = field(compare=False, hash=False)
 
@@ -290,14 +293,13 @@ def parameters(u, data: FitData, static: FitStatic) -> dict:
 
 
 def loss_value(u, data: FitData, static: FitStatic):
-    """Minus the log posterior of the parameters, per localization, plus the model's penalty."""
+    """Minus the log posterior of the parameters, per localization (LocMoFit.jl's derivations/derivation.qmd, @eq-full-posterior): the log-likelihood plus the log density of every prior that is not flat."""
     theta = parameters(u, data, static)
     model = static.model
     points = model.model_points(data.unit_model, theta)
     lw = jnp.stack(model.log_weights(theta))
     logw = lw - logsumexp(lw)
-    # the symmetric Dirichlet(alpha) prior on the shares, up to a constant (LocMoFit.jl's derivations/derivation.qmd, A prior on the shares); 0 for a simple model, whose one share is 1
-    shares = (data.share_prior - 1) * jnp.sum(logw)
+    prior = log_prior(static.priors, data.priors, theta)
     ranges = tuple(range(s, e) for s, e in static.blocks)
     masks = (
         dict(
@@ -321,7 +323,7 @@ def loss_value(u, data: FitData, static: FitStatic):
             False,
             **masks,
         )
-        return -(ll + shares) / data.n + model.penalty(theta)
+        return -(ll + prior) / data.n
     lam = theta["logit_prob"]
     log_pi, log_1mpi = jax.nn.log_sigmoid(lam), jax.nn.log_sigmoid(-lam)
     ll = log_likelihood(
@@ -336,13 +338,7 @@ def loss_value(u, data: FitData, static: FitStatic):
         True,
         **masks,
     )
-    prior = (
-        (data.signal_prior[0] - 1) * log_pi
-        + (data.signal_prior[1] - 1) * log_1mpi
-        if static.has_prior
-        else 0.0
-    )
-    return -(ll + prior + shares) / data.n + model.penalty(theta)
+    return -(ll + prior) / data.n
 
 
 def bucket(n: int) -> int:
@@ -375,11 +371,6 @@ def fit_data(problem, pad: bool) -> tuple[FitData, FitStatic]:
     if Np > N:  # padding rows repeat the first localization, with weight 0
         locs = np.concatenate([locs, np.repeat(locs[:1], Np - N, axis=0)])
         prec = np.concatenate([prec, np.repeat(prec[:1], Np - N, axis=0)])
-    prior = (
-        problem.signal_prior
-        if problem.signal_prior is not None
-        else (0.0, 0.0)
-    )
     pmap = problem.parameter_map
     data = FitData(
         locs=jnp.asarray(locs, dtype),
@@ -392,17 +383,14 @@ def fit_data(problem, pad: bool) -> tuple[FitData, FitStatic]:
         base=jnp.asarray(pmap.base, dtype),
         S=jnp.asarray(pmap.S, dtype),
         log_volume=jnp.asarray(problem.log_volume, dtype),
-        signal_prior=jnp.asarray(prior, dtype),
-        share_prior=jnp.asarray(
-            1.0 if problem.share_prior is None else problem.share_prior, dtype
-        ),
+        priors=tuple(jnp.asarray(p, dtype) for p in problem.prior_numbers),
     )
     static = FitStatic(
         model_key=model_key(problem.model),
         names=pmap.names,
         blocks=tuple(blocks),
         background=problem.background,
-        has_prior=problem.signal_prior is not None,
+        priors=problem.prior_terms,
         masked=pad,
         model=problem.model,
     )
@@ -410,6 +398,6 @@ def fit_data(problem, pad: bool) -> tuple[FitData, FitStatic]:
 
 
 def make_loss(problem, pad: bool = False):
-    """The objective of a fit, as a function of the free parameters `u`: minus the log posterior of the parameters, per localization, plus the model's penalty (`problem` from `fit_problem`). With `pad`, it is evaluated on the padded arrays that `run_locmofit` compiles."""
+    """The objective of a fit, as a function of the free parameters `u`: minus the log posterior of the parameters, per localization (`problem` from `fit_problem`). With `pad`, it is evaluated on the padded arrays that `run_locmofit` compiles."""
     data, static = fit_data(problem, pad)
     return lambda u: loss_value(u, data, static)

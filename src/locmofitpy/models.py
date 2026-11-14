@@ -12,16 +12,33 @@ import jax.numpy as jnp
 import numpy as np
 
 from .parameters import apply_init
+from .priors import (
+    SHARE_PRIOR,
+    SIGNAL_PRIOR,
+    SIZE_PRIOR,
+    Flat,
+    Prior,
+    Quantity,
+)
 from .transformations import chart_rotation, place, rotmat
 from .unit_models import unit_cap, unit_ring
 
 
-def sq_hinge(x):
-    return jnp.square(jnp.maximum(0, x))
+def common_quantities(model, background: bool) -> dict:
+    """The quantities every fit has besides its components': the blur `sigma`, a composite's `shares`, and with a background the `signal` fraction, each with its default prior."""
+    out: dict[str, tuple[Quantity, Prior]] = {
+        "sigma": (Quantity("size", ("sigma",)), Flat())
+    }
+    if model.ncomponents() > 1:
+        names = tuple(f"omega{k}" for k in range(2, model.ncomponents() + 1))
+        out["shares"] = (Quantity("shares", names), SHARE_PRIOR)
+    if background:
+        out["signal"] = (Quantity("signal", ("logit_prob",)), SIGNAL_PRIOR)
+    return out
 
 
 class SimpleModel:
-    """A model of one shape. Subclasses define `shape_parameters`, `unit_points`, `local_points`, `shape_penalty` and `shape_summary`."""
+    """A model of one shape. Subclasses define `shape_parameters`, `unit_points`, `local_points`, `shape_quantities` and `shape_summary`."""
 
     def shape_parameters(self) -> dict[str, float]:
         raise NotImplementedError
@@ -32,11 +49,36 @@ class SimpleModel:
     def local_points(self, unit, shape):
         raise NotImplementedError
 
-    def shape_penalty(self, shape):
+    def shape_quantities(self, suffix: str) -> dict:
+        """The shape's quantities, as `{name: (quantity, default prior)}` with `suffix` appended to the names."""
         raise NotImplementedError
 
     def shape_summary(self, shape) -> dict:
         raise NotImplementedError
+
+    def component_quantities(self, suffix: str, index: int) -> dict:
+        """The quantities of this model as component `index` of a fit, whose parameter names end in `suffix` ("" for a model fitted alone), each with its default prior: its position, its shape and its axis."""
+        return {
+            **{
+                f"{n}{suffix}": (
+                    Quantity("location", (f"{n}{suffix}",)),
+                    Flat(),
+                )
+                for n in ("x", "y", "z")
+            },
+            **self.shape_quantities(suffix),
+            f"axis{suffix}": (
+                Quantity("axis", (f"vx{suffix}", f"vy{suffix}"), index),
+                Flat(),
+            ),
+        }
+
+    def quantities(self, background: bool) -> dict:
+        """The quantities `ParamToFit` gives starting values and priors for, as `{name: (quantity, default prior)}`."""
+        return {
+            **self.component_quantities("", 1),
+            **common_quantities(self, background),
+        }
 
     def default_parameters(self) -> dict[str, float]:
         # the blur starts at 1 nm: the likelihood depends on sigma only through sigma², so a fit started at sigma = 0 never moves it
@@ -55,7 +97,7 @@ class SimpleModel:
         return ("x", "y", "z", *self.shape_parameters(), "vx", "vy")
 
     def orientation_names(self) -> tuple[tuple[str, str], ...]:
-        """The names that set each component's starting axis in `init_params`."""
+        """The names under which each component's starting axis (the `axis` of `params`) is kept: `theta`, `phi`, or `thetak`, `phik` for component k."""
         return (("theta", "phi"),)
 
     def ncomponents(self) -> int:
@@ -77,9 +119,6 @@ class SimpleModel:
 
     def log_weights(self, theta) -> tuple:
         return (jnp.zeros_like(theta["sigma"]),)
-
-    def penalty(self, theta):
-        return self.shape_penalty(theta)
 
     def summary(self, unit_model, theta) -> list[dict]:
         """Each component in the world frame: position, axis (as a vector and as `theta`, `phi`) and shape summary."""
@@ -117,8 +156,10 @@ class Ring(SimpleModel):
     def local_points(self, unit, shape):
         return shape["r"] * jnp.asarray(unit)
 
-    def shape_penalty(self, shape):
-        return sq_hinge(1 / shape["r"] ** 2 - 1)
+    def shape_quantities(self, suffix):
+        # the radius, with the default prior on sizes
+        r = f"r{suffix}"
+        return {r: (Quantity("size", (r,)), SIZE_PRIOR)}
 
     def shape_summary(self, shape):
         return {"r": float(shape["r"])}
@@ -148,8 +189,16 @@ class SphericalCap(SimpleModel):
             [rho * unit[:, 0], rho * unit[:, 1], -kappa * h], axis=1
         )
 
-    def shape_penalty(self, shape):
-        return sq_hinge(1 / shape["s"] ** 2 - 1)
+    def shape_quantities(self, suffix):
+        # the scale, with the default prior on sizes, and the curvature κ′ (`kappa`, fitted as `eta`), uniform on (-1, 1) by default
+        s = f"s{suffix}"
+        return {
+            s: (Quantity("size", (s,)), SIZE_PRIOR),
+            f"kappa{suffix}": (
+                Quantity("curvature", (f"eta{suffix}", s)),
+                Flat(),
+            ),
+        }
 
     def shape_summary(self, shape):
         s, kappa = float(shape["s"]), math.tanh(float(shape["eta"]))
@@ -166,9 +215,9 @@ class SphericalCap(SimpleModel):
 class Composite:
     """Several simple models fitted together as one structure.
 
-    Component 1 is placed in the world by its pose; every other component is placed by its pose in component 1's frame, so that its position and axis are relative to component 1. Each component's parameters keep their names with the component's number appended (`x1`, `r1`, `x2`, `s2`, `eta2`, …); the blur `sigma` is shared. Shape parameters are absolute (a ring's radius and a cap's scale in nm): to make two of them equal, tie them (`tie={"r2": "r1"}` in `run_locmofit`). `defaults` overrides the generated default starting values.
+    Component 1 is placed in the world by its pose; every other component is placed by its pose in component 1's frame, so that its position and axis are relative to component 1. Each component's parameters keep their names with the component's number appended (`x1`, `r1`, `x2`, `s2`, `eta2`, …); the blur `sigma` is shared. Shape parameters are absolute (a ring's radius and a cap's scale in nm): to make two of them equal, tie them (`params={"r2": ParamToFit(Tied("r1"))}` in `run_locmofit`). `defaults` overrides the generated default starting values.
 
-    Component k explains a share wₖ of the signal localizations, with its points averaged on their own. The shares are softmax(0, `omega2`, …, `omegaK`), so `omega2`, …, `omegaK` (log wₖ/w₁) are fitted; they start at 0 (equal shares), and freezing them fixes the shares.
+    Component k explains a share wₖ of the signal localizations, with its points averaged on their own. The shares are softmax(0, `omega2`, …, `omegaK`), so `omega2`, …, `omegaK` (log wₖ/w₁) are fitted; they start at 0 (equal shares), and holding them (`Fixed()` on `shares`) fixes the shares.
     """
 
     def __init__(
@@ -241,11 +290,12 @@ class Composite:
             *(theta[f"omega{k}"] for k in range(2, len(self.components) + 1)),
         )
 
-    def penalty(self, theta):
-        return sum(
-            c.penalty(self.component_parameters(theta, k))
-            for k, c in enumerate(self.components, start=1)
-        )
+    def quantities(self, background: bool) -> dict:
+        """Every component's quantities, with its number appended to their names, then the shared ones."""
+        out = {}
+        for k, c in enumerate(self.components, start=1):
+            out.update(c.component_quantities(str(k), k))
+        return {**out, **common_quantities(self, background)}
 
     def summary(self, unit_model, theta) -> list[dict]:
         p1 = self.component_parameters(theta, 1)
@@ -268,7 +318,7 @@ class Composite:
 
 
 def DoubleRing() -> Composite:  # noqa: N802 (the name of the model, as in LocMoFit.jl)
-    """Two rings, the second one placed in the first one's frame, starting 50 nm apart along the axis. For the two rings of a nuclear pore, which have the same radius, tie the radii: `tie={"r2": "r1"}`."""
+    """Two rings, the second one placed in the first one's frame, starting 50 nm apart along the axis. For the two rings of a nuclear pore, which have the same radius, tie the radii: `params={"r2": ParamToFit(Tied("r1"))}`."""
     return Composite(Ring(), Ring(), defaults={"z2": 50.0})
 
 

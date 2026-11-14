@@ -12,7 +12,7 @@ import numpy as np
 jax.config.update("jax_enable_x64", True)
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "tests"))
-from common import moved, tutorial  # noqa: E402
+from common import moved, start_params, tutorial  # noqa: E402
 
 import locmofitpy as lm  # noqa: E402
 from locmofitpy.loss import fit_data  # noqa: E402
@@ -48,7 +48,9 @@ for case, model, D in CASES:
         init["z"], freeze = truth["z"], ("z",)
     for dtype in ("float64", "float32"):
         kw = dict(
-            init_params=init, freeze=freeze, dtype=dtype, fov_volume=300.0**D
+            params=start_params(init, fixed=freeze),
+            dtype=dtype,
+            fov_volume=300.0**D,
         )
         t = time.perf_counter()
         r = lm.run_locmofit(model, locs, precs, **kw)
@@ -82,8 +84,7 @@ for case, model, D in CASES:
             model,
             locs[idx],
             precs[idx],
-            init_params=init,
-            freeze=freeze,
+            params=start_params(init, fixed=freeze),
             fov_volume=300.0**D,
         )
     total = time.perf_counter() - t

@@ -10,14 +10,20 @@ from common import (
     CASES,
     FOV,
     SPACING,
-    axes_init,
-    fractions,
+    case_params,
+    default_priors,
+    every_prior,
     make_data,
+    names_of,
     parts,
+    pose,
+    direction,
     problem,
     pseudo,
+    reference_log_prior,
     reference_loss,
     shares,
+    start_params,
 )
 
 import locmofitpy as lm
@@ -143,56 +149,71 @@ def test_log_likelihood_gradient(D):
     assert close(g[3], fd(3, h)) and close(g[4], fd(4, h))
 
 
-@pytest.mark.parametrize("case", range(len(CASES)))
-@pytest.mark.parametrize("D", [3, 2])
-@pytest.mark.parametrize(
-    "setting",
-    [
-        "background (5, 2)",
-        "background (3, 2)",
-        "background, no prior",
-        "no background",
-    ],
-)
-@pytest.mark.parametrize("alpha", [5.0, 2.5, None])
-def test_loss_against_reference(case, D, setting, alpha):
+def prior_variant(name, model, background):
+    """The priors of a variant of the reference test, or None where it does not apply (the signal fraction's need a background, the shares' a composite)."""
+    composite = isinstance(model, lm.Composite)
+    return {
+        "default": {},
+        "signal Beta(197, 50)": {"signal": lm.Beta(197, 50)}
+        if background
+        else None,
+        "signal flat": {"signal": lm.Flat()} if background else None,
+        "shares Dirichlet(2.5)": {"shares": lm.Dirichlet(2.5)}
+        if composite
+        else None,
+        "shares flat": {"shares": lm.Flat()} if composite else None,
+        "flat sizes": {k: lm.Flat() for k in names_of(model, ("r", "s"))},
+        "every prior": every_prior(model),
+    }[name]
+
+
+VARIANTS = [
+    (case, D, background, name)
+    for case in range(len(CASES))
+    for D in (3, 2)
+    for background in (True, False)
+    for name in (
+        "default",
+        "signal Beta(197, 50)",
+        "signal flat",
+        "shares Dirichlet(2.5)",
+        "shares flat",
+        "flat sizes",
+        "every prior",
+    )
+    if prior_variant(name, CASES[case][1], background) is not None
+]
+
+
+@pytest.mark.parametrize("case, D, background, variant", VARIANTS)
+def test_loss_against_reference(case, D, background, variant):
+    # the posterior with its default priors, then with each default replaced (the signal fraction's, the shares', and flat sizes) and with every other quantity given a prior, as LocMoFit.jl's test
     _, model, theta, starts = CASES[case]
-    background = setting != "no background"
-    prior = {
-        "background (5, 2)": (5.0, 2.0),
-        "background (3, 2)": (3.0, 2.0),
-    }.get(setting)
+    priors = prior_variant(variant, model, background)
     locs, precs = make_data(model, theta, starts, D=D)
     p, u = problem(
-        model,
-        theta,
-        starts,
-        locs,
-        precs,
-        background=background,
-        signal_prior=prior,
-        share_prior=alpha,
+        model, theta, starts, locs, precs, background=background, priors=priors
     )
     thp = p.parameter_map.full_parameters(u)
-    assert float(model.penalty(thp)) == 0
-    f = 1 / (1 + math.exp(-float(thp["logit_prob"]))) if background else None
+    used = {**default_priors(model, background), **priors}
     ref = reference_loss(
         locs,
         precs,
         parts(p, thp, D),
         shares(model, thp),
         float(thp["sigma"]),
-        f=f,
+        f=1 / (1 + math.exp(-float(thp["logit_prob"])))
+        if background
+        else None,
         V=FOV**D,
-        prior=prior,
-        share_prior=alpha,
+        logprior=reference_log_prior(model, thp, starts, used),
     )
     assert float(lm.make_loss(p)(u)) == pytest.approx(ref, rel=1e-10)
 
 
-@pytest.mark.parametrize("alpha", [5.0, 2.0, None])
+@pytest.mark.parametrize("alpha", [5.0, 2.0, 1.0])
 def test_share_prior_optimum(alpha):
-    # two rings 2 µm apart along their axis, n1 and n2 localizations exactly on them, no background: every localization comes from its own ring (q = 0 or 1 in LocMoFit.jl's derivations/derivation.qmd, @eq-shares), so the share that maximizes the posterior is (n2 + alpha - 1)/(n + 2(alpha - 1)) (@eq-share-map), and n2/n without the prior (as LocMoFit.jl's test)
+    # two rings 2 µm apart along their axis, n1 and n2 localizations exactly on them, no background: every localization comes from its own ring (q = 0 or 1 in LocMoFit.jl's derivations/derivation.qmd, @eq-shares), so the share that maximizes the posterior is (n2 + alpha - 1)/(n + 2(alpha - 1)) (@eq-share-map), n2/n for the flat Dirichlet(1), whose term is 0 (Dirichlet(1) rather than Flat() reuses the compiled fit); the fits also check what a fit without a background returns (as LocMoFit.jl's test)
     n1, n2, r = 30, 10, 50.0
 
     def ring(n, z):
@@ -201,59 +222,64 @@ def test_share_prior_optimum(alpha):
 
     locs = np.vstack([ring(n1, 0.0), ring(n2, 2000.0)])
     precs = np.full(locs.shape, 5.0)
-    model = lm.get_model("DoubleRing")
-    theta = {
-        **model.default_parameters(),
-        "r1": r,
-        "r2": r,
-        "z2": 2000.0,
-        "sigma": 1.0,
-    }
-    fixed = tuple(k for k in theta if k != "omega2")
+    theta = dict(
+        x1=0.0,
+        y1=0.0,
+        z1=0.0,
+        r1=r,
+        theta1=0.0,
+        phi1=0.0,
+        x2=0.0,
+        y2=0.0,
+        z2=2000.0,
+        r2=r,
+        theta2=0.0,
+        phi2=0.0,
+        sigma=1.0,
+    )
+    held = start_params(theta, fixed=tuple(start_params(theta)))
     fit = lm.run_locmofit(
-        model,
+        "DoubleRing",
         locs,
         precs,
-        init_params=theta,
-        freeze=fixed,
+        params={**held, "shares": lm.ParamToFit(lm.Dirichlet(alpha))},
         background=False,
-        share_prior=alpha,
         tol=1e-10,
     )
-    expected = (
-        n2 / (n1 + n2)
-        if alpha is None
-        else (n2 + alpha - 1) / (n1 + n2 + 2 * (alpha - 1))
+    assert fit["weights"][1] == pytest.approx(
+        (n2 + alpha - 1) / (n1 + n2 + 2 * (alpha - 1)), rel=1e-6
     )
-    assert fit["weights"][1] == pytest.approx(expected, rel=1e-6)
-
-
-def test_share_prior_below_one():
-    locs = np.zeros((20, 3))
-    with pytest.raises(ValueError):
-        lm.fit_problem("Ring", locs, np.ones_like(locs), share_prior=0.5)
+    assert (
+        "logit_prob" not in fit["parameters"]
+        and fit["signal_fraction"] is None
+        and math.isfinite(fit["loss"])
+    )
 
 
 @pytest.mark.parametrize("case", range(len(CASES)))
 @pytest.mark.parametrize("D", [3, 2])
 def test_length_unit(case, D):
-    # every length divided by L (positions, radii, scales, the blur, the spacing): the posterior's geometry is the same, and the loss (minus the log posterior per localization) drops by D·log L exactly
+    # every length divided by L (positions, radii, scales, the blur, the spacing, and the log-normal priors' medians): the posterior's geometry is the same, and the loss (minus the log posterior per localization) drops by (D + J/N)·log L exactly, with J log-normal priors (LocMoFit.jl's derivations/derivation.qmd, @eq-units-priors)
     L = 2.5
     _, model, theta, starts = CASES[case]
     scaled = {k: v / L if k[0] in "xyzrs" else v for k, v in theta.items()}
     locs, precs = make_data(model, theta, starts, D=D)
     p, u = problem(model, theta, starts, locs, precs)
-    pL, uL = lm.fit_problem(
+    sizes = names_of(model, ("r", "s"))
+    pL, uL = problem(
         model,
+        scaled,
+        starts,
         locs / L,
         precs / L,
-        init_params={**scaled, **fractions(model), **axes_init(model, starts)},
+        priors={k: lm.LogNormal(math.log(50 / L), 1) for k in sizes},
         spacing=SPACING / L,
-        dtype="float64",
-        fov_volume=(FOV / L) ** D,
+        fov=FOV / L,
     )
+    N = len(locs)
     assert float(lm.make_loss(pL)(uL)) == pytest.approx(
-        float(lm.make_loss(p)(u)) - D * math.log(L), rel=1e-10
+        float(lm.make_loss(p)(u)) - (D + len(sizes) / N) * math.log(L),
+        rel=1e-10,
     )
 
 
@@ -261,15 +287,22 @@ def test_length_unit(case, D):
     "case, kwargs, D",
     [
         (0, {}, 3),
-        (1, {}, 3),
-        (2, dict(freeze=("vx2", "vy2"), tie={"r2": "r1"}), 3),
-        (3, {}, 3),
+        (
+            2,
+            dict(
+                fixed=("axis2",),
+                params={"r2": lm.ParamToFit(lm.Tied("r1"))},
+            ),
+            3,
+        ),
         (2, dict(background=False), 3),
         (3, {}, 2),
+        (1, dict(priors=every_prior(CASES[1][1])), 3),
+        (3, dict(priors=every_prior(CASES[3][1])), 3),
     ],
 )
 def test_gradient(case, kwargs, D):
-    # JAX's gradient of the loss against central differences, for every model (with the background, the prior and the weights); DoubleRing with its radii tied and its second orientation frozen, and once without a background; SpCapRing also in 2D
+    # JAX's gradient of the loss against central differences, for every model with the background and the weights: Ring with the default priors; SphericalCap and SpCapRing with the default priors and every other kind of prior; DoubleRing with its radii tied and its second axis held, and once without a background; SpCapRing also in 2D (as LocMoFit.jl's test)
     _, model, theta, starts = CASES[case]
     locs, precs = make_data(model, theta, starts, D=D)
     p, u = problem(model, theta, starts, locs, precs, **kwargs)
@@ -301,3 +334,139 @@ def test_padding(case, D):
     assert np.allclose(
         jax.grad(padded)(u), jax.grad(exact)(u), rtol=1e-10, atol=1e-14
     )
+
+
+def test_priors():
+    # where the likelihood does not depend on a quantity, the fit ends at its prior's mode (LocMoFit.jl's derivations/derivation.qmd, Priors on every parameter): the height of a ring in 2D under a normal density; and the cap of a SpCapRing whose share is held at 1e-20, fitted to a ring's localizations with a background, so that the cap's density is negligible next to the background's: its height z2 at the normal's mean, its scale at the log-normal's mode exp(mu - sigma²), its κ′ at the normal's mean, and its axis along ±μ of the Watson density (as LocMoFit.jl's test)
+    _, model, theta, starts = CASES[0]
+    locs, precs = make_data(model, theta, starts, D=2)
+    held = tuple(k for k in case_params(model, theta, starts) if k != "z")
+    fit = lm.run_locmofit(
+        model,
+        locs,
+        precs,
+        params=case_params(
+            model, theta, starts, fixed=held, priors={"z": lm.Normal(30, 10)}
+        ),
+        spacing=SPACING,
+        tol=1e-10,
+    )
+    assert fit["parameters"]["z"] == pytest.approx(30, rel=1e-8)
+
+    ring = dict(x1=3.0, y1=-2.0, z1=5.0, r1=40.0, theta1=0.4, phi1=1.1)
+    locs, precs = make_data(
+        lm.Ring(),
+        dict(x=3.0, y=-2.0, z=5.0, r=40.0, vx=0.0, vy=0.0, sigma=2.0),
+        ((0.4, 1.1),),
+    )
+    start = {
+        **ring,
+        **dict(
+            x2=0.0,
+            y2=0.0,
+            z2=85.0,
+            s2=30.0,
+            eta2=math.atanh(0.5),
+            theta2=0.2,
+            phi2=-0.7,
+        ),
+        "sigma": 2.0,
+        "logit_prob": 1.2,
+    }
+    free = ("z2", "s2", "kappa2", "axis2")
+    priors = dict(
+        z2=lm.Normal(70, 5),
+        s2=lm.LogNormal(math.log(40), 0.5),
+        kappa2=lm.Normal(0.3, 0.2),
+        axis2=lm.Watson(0.5, 1.0, 3.0),
+    )
+    params = {
+        **start_params(
+            start,
+            fixed=tuple(k for k in start_params(start) if k not in free),
+            priors=priors,
+        ),
+        "shares": lm.ParamToFit((1.0, 1e-20), lm.Fixed()),
+    }
+    fit = lm.run_locmofit(
+        "SpCapRing", locs, precs, params=params, spacing=SPACING, tol=1e-10
+    )
+    th = fit["parameters"]
+    assert th["z2"] == pytest.approx(70, rel=1e-8)
+    assert abs(th["s2"]) == pytest.approx(40 * math.exp(-(0.5**2)), rel=1e-8)
+    assert math.copysign(1, th["s2"]) * math.tanh(th["eta2"]) == pytest.approx(
+        0.3, rel=1e-8
+    )
+    axis = pose((0.2, -0.7), th["vx2"], th["vy2"])[:, 2]
+    assert abs(axis @ direction(0.5, 1.0)) == pytest.approx(1, rel=1e-10)
+
+
+@pytest.mark.parametrize(
+    "model, params, background",
+    [
+        (
+            "Ring",
+            {"r2": lm.ParamToFit(1.0)},
+            True,
+        ),  # not a quantity of the model
+        ("Ring", {"r": 50.0}, True),  # not a ParamToFit
+        (
+            "Ring",
+            {"x": lm.ParamToFit(lm.LogNormal(0, 1))},
+            True,
+        ),  # a log-normal fits sizes only
+        (
+            "Ring",
+            {"r": lm.ParamToFit(lm.Watson(0, 0, 1))},
+            True,
+        ),  # a Watson density fits axes only
+        ("Ring", {"axis": lm.ParamToFit(lm.Normal(0, 1))}, True),
+        ("Ring", {"signal": lm.ParamToFit(lm.Dirichlet(5))}, True),
+        (
+            "Ring",
+            {"signal": lm.ParamToFit(0.5)},
+            False,
+        ),  # no signal fraction without a background
+        ("Ring", {"signal": lm.ParamToFit(1.0)}, True),  # outside (0, 1)
+        ("SphericalCap", {"kappa": lm.ParamToFit(1.0)}, True),
+        (
+            "Ring",
+            {"axis": lm.ParamToFit(0.3)},
+            True,
+        ),  # an axis is (theta, phi)
+        ("DoubleRing", {"shares": lm.ParamToFit((0.5, 0.3, 0.2))}, True),
+        (
+            "DoubleRing",
+            {"r2": lm.ParamToFit(lm.Tied("z1"))},
+            True,
+        ),  # a size tied to a position
+        ("DoubleRing", {"r2": lm.ParamToFit(lm.Tied("r3"))}, True),
+        ("DoubleRing", {"axis2": lm.ParamToFit(lm.Tied("axis1"))}, True),
+    ],
+)
+def test_params_refused(model, params, background):
+    locs = np.array(
+        [[10 * pseudo(d, n) for d in range(1, 4)] for n in range(1, 31)]
+    )
+    with pytest.raises(ValueError):
+        lm.fit_problem(
+            model,
+            locs,
+            np.full(locs.shape, 3.0),
+            params=params,
+            background=background,
+        )
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: lm.Normal(0, 0),
+        lambda: lm.LogNormal(0, -1),
+        lambda: lm.Beta(0.5, 2),
+        lambda: lm.Dirichlet(0.5),
+    ],
+)
+def test_prior_parameters_refused(make):
+    with pytest.raises(ValueError):
+        make()

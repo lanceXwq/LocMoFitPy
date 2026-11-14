@@ -11,6 +11,18 @@ from .models import (
 )
 from .parameters import ParameterMap
 from .pipeline import fit_problem, run_locmofit
+from .priors import (
+    Beta,
+    Dirichlet,
+    Fixed,
+    Flat,
+    LogNormal,
+    Normal,
+    ParamToFit,
+    Prior,
+    Tied,
+    Watson,
+)
 
 __all__ = [
     "run_locmofit",
@@ -26,4 +38,14 @@ __all__ = [
     "get_model",
     "list_models",
     "ParameterMap",
+    "ParamToFit",
+    "Prior",
+    "Flat",
+    "Normal",
+    "LogNormal",
+    "Beta",
+    "Dirichlet",
+    "Watson",
+    "Fixed",
+    "Tied",
 ]

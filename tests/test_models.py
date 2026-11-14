@@ -1,4 +1,4 @@
-"""Geometry, composites, penalties, freezing and ties, as in LocMoFit.jl's test/runtests.jl."""
+"""Geometry, composites, holding and ties, as in LocMoFit.jl's test/runtests.jl."""
 
 import math
 
@@ -115,25 +115,6 @@ def test_composite_points():
     )
 
 
-def test_penalties():
-    # soft bounds on sizes only (radius and scale ≥ 1 nm), each a squared hinge; orientations need none
-    assert float(
-        lm.Ring().penalty({**CASES[0][2], "r": 0.5, "vx": 10.0})
-    ) == pytest.approx((1 / 0.5**2 - 1) ** 2)
-    assert float(
-        lm.SphericalCap().penalty({**CASES[1][2], "s": 0.5, "eta": -5.0})
-    ) == pytest.approx((1 / 0.5**2 - 1) ** 2)
-    # a composite adds its components' penalties; a second ring smaller than the first is not penalized
-    dr = lm.DoubleRing()
-    assert float(
-        dr.penalty({**CASES[2][2], "r1": 0.5, "r2": 0.25})
-    ) == pytest.approx((1 / 0.5**2 - 1) ** 2 + (1 / 0.25**2 - 1) ** 2)
-    assert float(dr.penalty({**CASES[2][2], "r2": 40.0})) == 0
-    assert float(
-        lm.SpCapRing().penalty({**CASES[3][2], "s2": 0.5})
-    ) == pytest.approx((1 / 0.5**2 - 1) ** 2)
-
-
 def test_composites():
     # names: each component's own names with its number appended, one shared blur, and the weights
     c = lm.Composite(lm.SphericalCap(), lm.Ring(), defaults={"z2": 30})
@@ -226,7 +207,7 @@ def test_freezing():
     assert m.full_parameters(u) == theta
     u[m.free.index("r")] = 45.0
     assert m.full_parameters(u) == {**theta, "r": 45.0}
-    pf, uf = problem(model, theta, starts, locs, precs, freeze=("z", "sigma"))
+    pf, uf = problem(model, theta, starts, locs, precs, fixed=("z", "sigma"))
     uf = uf.at[pf.parameter_map.free.index("r")].set(45.0)
     p45, u45 = problem(model, {**theta, "r": 45.0}, starts, locs, precs)
     p0, _ = problem(model, theta, starts, locs, precs)
@@ -237,9 +218,6 @@ def test_freezing():
         lm.ParameterMap(theta, ("w",))
     with pytest.raises(ValueError):
         lm.ParameterMap(theta, tuple(theta))
-    # theta, phi set the starting axis; the orientation is frozen through its chart coordinates
-    with pytest.raises(ValueError):
-        problem(model, theta, starts, locs, precs, freeze=("theta",))
 
 
 def test_ties():

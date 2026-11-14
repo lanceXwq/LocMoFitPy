@@ -17,6 +17,25 @@ function moved(p)
                   k == :logit_prob ? log(9) : k == :omega2 ? 0.0 : v
     return NamedTuple{keys(p)}(Tuple(shift(k, v) for (k, v) in pairs(p)))
 end
+# the starting values in LocMoFit's parameter names as params (LocMoFit.jl's test/tutorial.jl, start_params): an axis as (theta, phi), κ′ = tanh(eta), the signal fraction logistic(logit_prob), the shares softmax(0, omega2); held if named in `fixed`
+function start_params(θ; fixed=())
+    values = Pair{Symbol,Any}[]
+    for (k, v) in pairs(θ)
+        name = string(k)
+        if startswith(name, "theta")
+            push!(values, Symbol(:axis, name[6:end]) => (v, θ[Symbol(:phi, name[6:end])]))
+        elseif startswith(name, "eta")
+            push!(values, Symbol(:kappa, name[4:end]) => tanh(v))
+        elseif k == :logit_prob
+            push!(values, :signal => 1 / (1 + exp(-v)))
+        elseif k == :omega2
+            push!(values, :shares => (1 / (1 + exp(v)), 1 / (1 + exp(-v))))
+        elseif !startswith(name, "phi")
+            push!(values, k => v)
+        end
+    end
+    return NamedTuple(k => ParamToFit(v, k in fixed ? Fixed() : nothing) for (k, v) in values)
+end
 
 const DATA = joinpath(@__DIR__, "..", "..", "notebooks", "data")
 entries, starts = String[], String[]
@@ -31,7 +50,7 @@ for (case, model, D) in (("ring", "Ring", 3), ("ring2D", "Ring", 2), ("double_ri
     D == 2 && (init = merge(init, (z=t.z,)))
     e = LocMoFit.estimate_start(LocMoFit.build_model(model), locs, precs, nothing)
     push!(starts, @sprintf("  \"%s\": {%s}", case, join([@sprintf("\"%s\": %.17g", k, v) for (k, v) in pairs(e)], ", ")))
-    r = run_locmofit(model, locs, precs; init_params=init, freeze, dtype=Float64, fov_volume=300.0^D)
+    r = run_locmofit(model, locs, precs; params=start_params(init; fixed=freeze), dtype=Float64, fov_volume=300.0^D)
     params = join([@sprintf("\"%s\": %.17g", k, v) for (k, v) in pairs(r.parameters)], ", ")
     push!(entries, @sprintf("  \"%s\": {\"iterations\": %d, \"loss\": %.17g, \"parameters\": {%s}}", case,
                             r.result.stats.iterations, r.loss, params))

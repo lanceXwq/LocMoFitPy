@@ -125,16 +125,18 @@ def test_two_rings():
 
 
 def test_fit_problem():
-    # given values are kept, frozen ones not given keep their defaults, a tie's target follows its source, and the rest is estimated
+    # given values are kept, held ones not given keep their defaults, a tie's target follows its source, and the rest is estimated
     two, a = two_rings()
     precs = np.full(two.shape, 2.0)
     p, u = lm.fit_problem(
         lm.DoubleRing(),
         two,
         precs,
-        init_params={"r1": 50.0},
-        freeze=("z1",),
-        tie={"r2": "r1"},
+        params={
+            "r1": lm.ParamToFit(50.0),
+            "z1": lm.ParamToFit(lm.Fixed()),
+            "r2": lm.ParamToFit(lm.Tied("r1")),
+        },
     )
     theta = p.parameter_map.full_parameters(u)
     assert theta["r1"] == 50 and theta["r2"] == 50 and theta["z1"] == 0
@@ -143,7 +145,10 @@ def test_fit_problem():
     assert p.unit_model[0][1][:, 2] == pytest.approx(a)
     # a starting axis given is used
     p, _ = lm.fit_problem(
-        lm.DoubleRing(), two, precs, init_params={"theta1": 0.0}
+        lm.DoubleRing(),
+        two,
+        precs,
+        params={"axis1": lm.ParamToFit((0.0, 0.0))},
     )
     assert p.unit_model[0][1][:, 2] == pytest.approx([0, 0, 1])
     # in 2D only the position is estimated

@@ -103,6 +103,18 @@ The port of LocMoFit.jl's `estimate_start` (`start.py`); the choices, and the mi
 
 The port of LocMoFit.jl's prior on the components' shares (its `NOTES.md`, The share prior, and its derivation, A prior on the shares): (alpha − 1) Σₖ log wₖ added to the log posterior, alpha = 5 by default. alpha is one of the arrays a compiled fit takes (`FitData.share_prior`), not part of its static layout, so a fit with another alpha, or none (passed as alpha = 1, for which the term is exactly 0), reuses the same compilation. The scratch study behind the choice was run with LocMoFitPy, the prior patched into `loss_value`; the parity references (`tests/data/julia_fits.json`, `julia_starts.json`) were written again with LocMoFit.jl's share prior on.
 
+## Priors on every parameter (the port, 2026-11-14, branch `priors`)
+
+The port of LocMoFit.jl's prototype on its branch `priors` (its `NOTES.md`, Priors on every parameter; its derivation, Priors on every parameter): `params`, a dict of `ParamToFit(value, prior)` per quantity, replaces `init_params`, `freeze`, `tie`, `signal_prior` and `share_prior`; holding and tying are the priors `Fixed()` and `Tied("r1")`; the size penalties are replaced by a log-normal prior on sizes, `LogNormal(log(50), 1)`; the other defaults are unchanged.
+
+**Compilations.** Which priors a fit has, each term's `(kind, names, family)`, is part of `FitStatic`, so a fit is compiled for its set of priors; their numbers are arrays in `FitData`, so other numbers reuse the compilation. A dataset fitted with the default priors compiles as before (the same size classes in `benchmarks/speed/speed.py`'s 20 sites per model), while a new family or a prior on another quantity compiles again, like a new model. So "no prior" on the shares is best written `Dirichlet(1)`, whose term is exactly 0, rather than `Flat()`, where it matters (the share-prior test does so).
+
+**Speed** (`benchmarks/speed/speed.py`, twice each on `main` and the branch): the compiled fits took the same time within run-to-run noise for every model in float64, and a whole `run_locmofit` call (compilation included) as well. Some float32 fits took a different number of iterations, since the objective changed (the ring 29 → 43, the cap 41 → 51, the cap with a ring 94 → 84). The jitted gradient of the cap with a ring alone, outside a fit, was 15–20% slower in both runs on the branch (2.5 against 2.1–2.2 ms); it does not show in the fit, and was not looked into.
+
+**Parity.** `tests/data/julia_fits.jl` passes `params` and was run against LocMoFit.jl's branch `priors`: every tutorial fit moved a little (its loss now has the log-normal terms) and still equals LocMoFit.jl's, with the same iterations; `julia_starts.json` did not change.
+
+**Not ported:** the SMAPpy plugin, which still passes `init_params`, `freeze` and `tie`. SMAPpy's environment has an editable install of this working tree, so the plugin fails in SMAPpy while the branch is checked out.
+
 ## Compilations kept on disk across SMAPpy sessions (2026-11-09)
 
 **The choice.** The SMAPpy plugin switches on JAX's persistent compilation cache before its first fit (`use_compilation_cache`): the folder `locmofit_jax_cache` in SMAPpy's configuration folder, and a minimum compile time of 0, since JAX's default (1 s) would skip most of our compilations. A folder already set in `JAX_COMPILATION_CACHE_DIR` is kept. `run_locmofit` does not do it, because both settings hold for the whole process and a library should not change them for its caller; MATLAB or a script gets the same by setting `JAX_COMPILATION_CACHE_DIR` and `JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0` in the environment.

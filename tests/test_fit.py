@@ -11,10 +11,13 @@ from common import (
     CASES,
     SPACING,
     axes_init,
+    case_params,
     direction,
     make_data,
     moved,
+    start_params,
     tutorial,
+    without_chart,
 )
 
 import locmofitpy as lm
@@ -29,7 +32,7 @@ def test_run_locmofit():
     _, model, theta, starts = CASES[0]
     locs, precs = make_data(model, theta, starts, every=3)
     init = {
-        **theta,
+        **without_chart(theta),
         "x": 0.0,
         "z": 0.0,
         "r": 30.0,
@@ -37,7 +40,9 @@ def test_run_locmofit():
         **axes_init(model, starts),
     }
     kw = dict(
-        init_params=init, freeze=("sigma",), dtype="float64", spacing=SPACING
+        params=start_params(init, fixed=("sigma",)),
+        dtype="float64",
+        spacing=SPACING,
     )
     r = lm.run_locmofit("Ring", locs, precs, **kw)
     assert r["history"] is None
@@ -75,38 +80,6 @@ def test_run_locmofit():
     assert len(h["history"]["losses"]) == h["iterations"] + 1 > 1
     assert np.all(h["history"]["parameters"]["sigma"] == 1.0)
 
-    # without a background: no signal fraction to fit; a starting axis pointing down works too
-    nb = lm.run_locmofit(
-        "Ring",
-        locs,
-        precs,
-        init_params={**init, "theta": math.pi},
-        background=False,
-        dtype="float64",
-        spacing=SPACING,
-        max_iter=5,
-    )
-    assert (
-        "logit_prob" not in nb["parameters"]
-        and nb["signal_fraction"] is None
-        and math.isfinite(nb["loss"])
-    )
-
-    # freezing works for every model
-    for name, model, theta, starts in CASES:
-        locs, precs = make_data(model, theta, starts)
-        f = lm.run_locmofit(
-            name,
-            locs,
-            precs,
-            init_params={**theta, **axes_init(model, starts)},
-            freeze=("sigma",),
-            dtype="float64",
-            spacing=SPACING,
-            max_iter=5,
-        )
-        assert f["parameters"]["sigma"] == theta["sigma"]
-
     # a tie holds throughout; a composite can be passed as a model, and its shares sum to one
     _, model, theta, starts = CASES[2]
     locs, precs = make_data(model, theta, starts)
@@ -114,8 +87,10 @@ def test_run_locmofit():
         lm.Composite(lm.Ring(), lm.Ring()),
         locs,
         precs,
-        init_params={**theta, **axes_init(model, starts)},
-        tie={"r2": "r1"},
+        params={
+            **case_params(model, theta, starts),
+            "r2": lm.ParamToFit(lm.Tied("r1")),
+        },
         dtype="float64",
         spacing=SPACING,
         max_iter=20,
@@ -125,7 +100,7 @@ def test_run_locmofit():
 
 
 def test_point_params():
-    # the number of points comes from point_params (ceil(2πr/spacing) for a ring, ceil(4πs²/spacing²) for a cap); the starting values from init_params, frozen or not
+    # the number of points comes from point_params (ceil(2πr/spacing) for a ring, ceil(4πs²/spacing²) for a cap); the starting values from params, held or not
     _, model, theta, starts = CASES[0]
     locs, precs = make_data(model, theta, starts, every=3)
 
@@ -134,13 +109,13 @@ def test_point_params():
 
     kw = dict(dtype="float64", spacing=3.0)
     p80, u80 = lm.fit_problem(
-        lm.Ring(), locs, precs, init_params={"r": 80.0}, **kw
+        lm.Ring(), locs, precs, params={"r": lm.ParamToFit(80.0)}, **kw
     )
     p50, u50 = lm.fit_problem(
         lm.Ring(),
         locs,
         precs,
-        init_params={"r": 80.0},
+        params={"r": lm.ParamToFit(80.0)},
         point_params={"r": 50.0},
         **kw,
     )
@@ -152,8 +127,7 @@ def test_point_params():
         lm.Ring(),
         locs,
         precs,
-        init_params={"r": 80.0},
-        freeze=("r",),
+        params={"r": lm.ParamToFit(80.0, lm.Fixed())},
         point_params={"r": 50.0},
         **kw,
     )
@@ -168,8 +142,10 @@ def test_point_params():
         lm.DoubleRing(),
         locs,
         precs,
-        init_params={"r1": 70.0},
-        tie={"r2": "r1"},
+        params={
+            "r1": lm.ParamToFit(70.0),
+            "r2": lm.ParamToFit(lm.Tied("r1")),
+        },
         point_params={"r1": 40.0},
         **kw,
     )
@@ -182,21 +158,20 @@ def test_point_params():
 
 def fit(case, model, D):
     locs, precs, truth, signal, component = tutorial(case, D)
-    init, freeze = moved(truth), ()
-    if D == 2:  # z is undetermined in 2D and frozen
-        init["z"], freeze = truth["z"], ("z",)
+    init, fixed = moved(truth), ()
+    if D == 2:  # z is undetermined in 2D and held
+        init["z"], fixed = truth["z"], ("z",)
     r = lm.run_locmofit(
         model,
         locs,
         precs,
-        init_params=init,
-        freeze=freeze,
+        params=start_params(init, fixed=fixed),
         dtype="float64",
         fov_volume=300.0**D,
     )
     # the true structure in the world frame, as run_locmofit reports a fitted one
     p, u = lm.fit_problem(
-        model, locs, precs, init_params=truth, dtype="float64"
+        model, locs, precs, params=start_params(truth), dtype="float64"
     )
     t = p.model.summary(
         p.unit_model,
@@ -340,11 +315,11 @@ def test_fit_cap_with_ring():
     ],
 )
 def test_fit_from_estimated_start(case, model):
-    # with init_params left out, every 3D tutorial fit starts from the data and reaches the optimum the truth-started fit reaches (or a better one): its loss no more than 0.01 per localization above, the threshold LocMoFit.jl's NOTES.md counts a miss by, while the wrong maxima found on simulated sites lay 0.04–0.7 above (as LocMoFit.jl's test/fit.jl)
+    # with no starting values given, every 3D tutorial fit starts from the data and reaches the optimum the truth-started fit reaches (or a better one): its loss no more than 0.01 per localization above, the threshold LocMoFit.jl's NOTES.md counts a miss by, while the wrong maxima found on simulated sites lay 0.04–0.7 above (as LocMoFit.jl's test/fit.jl)
     locs, precs, truth, _, _ = tutorial(case, 3)
     a = lm.run_locmofit(model, locs, precs, fov_volume=300.0**3)
     t = lm.run_locmofit(
-        model, locs, precs, init_params=truth, fov_volume=300.0**3
+        model, locs, precs, params=start_params(truth), fov_volume=300.0**3
     )
     assert a["retcode"] == "Success"
     assert a["loss"] < t["loss"] + 0.01

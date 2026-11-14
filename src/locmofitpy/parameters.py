@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 
 import numpy as np
 
@@ -86,19 +86,3 @@ def apply_init(
             stacklevel=3,
         )
     return {k: float(init[k]) if k in init else v for k, v in default.items()}
-
-
-def freeze_names(freeze: str | Iterable[str]) -> tuple[str, ...]:
-    if isinstance(freeze, str):
-        return (freeze,)
-    return tuple(str(k) for k in freeze)
-
-
-def tie_pairs(
-    tie: Mapping[str, str] | Sequence[tuple[str, str]] | None,
-) -> tuple[tuple[str, str], ...]:
-    """Ties as `(target, source)` pairs, from a dict `{target: source}` or a sequence of pairs."""
-    if not tie:
-        return ()
-    items = tie.items() if isinstance(tie, Mapping) else tie
-    return tuple((str(t), str(s)) for t, s in items)
