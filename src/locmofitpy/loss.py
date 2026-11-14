@@ -255,6 +255,7 @@ class FitData(NamedTuple):
     S: Any
     log_volume: Any
     signal_prior: Any  # (a, b), or zeros without a prior
+    share_prior: Any  # alpha of the Dirichlet prior on the shares; 1 without a prior, which makes its term 0
 
 
 @dataclass(frozen=True)
@@ -295,6 +296,8 @@ def loss_value(u, data: FitData, static: FitStatic):
     points = model.model_points(data.unit_model, theta)
     lw = jnp.stack(model.log_weights(theta))
     logw = lw - logsumexp(lw)
+    # the symmetric Dirichlet(alpha) prior on the shares, up to a constant (LocMoFit.jl's derivations/derivation.qmd, A prior on the shares); 0 for a simple model, whose one share is 1
+    shares = (data.share_prior - 1) * jnp.sum(logw)
     ranges = tuple(range(s, e) for s, e in static.blocks)
     masks = (
         dict(
@@ -318,7 +321,7 @@ def loss_value(u, data: FitData, static: FitStatic):
             False,
             **masks,
         )
-        return -ll / data.n + model.penalty(theta)
+        return -(ll + shares) / data.n + model.penalty(theta)
     lam = theta["logit_prob"]
     log_pi, log_1mpi = jax.nn.log_sigmoid(lam), jax.nn.log_sigmoid(-lam)
     ll = log_likelihood(
@@ -339,7 +342,7 @@ def loss_value(u, data: FitData, static: FitStatic):
         if static.has_prior
         else 0.0
     )
-    return -(ll + prior) / data.n + model.penalty(theta)
+    return -(ll + prior + shares) / data.n + model.penalty(theta)
 
 
 def bucket(n: int) -> int:
@@ -390,6 +393,9 @@ def fit_data(problem, pad: bool) -> tuple[FitData, FitStatic]:
         S=jnp.asarray(pmap.S, dtype),
         log_volume=jnp.asarray(problem.log_volume, dtype),
         signal_prior=jnp.asarray(prior, dtype),
+        share_prior=jnp.asarray(
+            1.0 if problem.share_prior is None else problem.share_prior, dtype
+        ),
     )
     static = FitStatic(
         model_key=model_key(problem.model),

@@ -99,6 +99,10 @@ The port of LocMoFit.jl's `estimate_start` (`start.py`); the choices, and the mi
 
 **Point counts.** A start estimated per site gives every site its own point count unless `point_params` is set, and so many more compilations (the section on `point_params`).
 
+## The share prior (the port, 2026-11-14)
+
+The port of LocMoFit.jl's prior on the components' shares (its `NOTES.md`, The share prior, and its derivation, A prior on the shares): (alpha − 1) Σₖ log wₖ added to the log posterior, alpha = 5 by default. alpha is one of the arrays a compiled fit takes (`FitData.share_prior`), not part of its static layout, so a fit with another alpha, or none (passed as alpha = 1, for which the term is exactly 0), reuses the same compilation. The scratch study behind the choice was run with LocMoFitPy, the prior patched into `loss_value`; the parity references (`tests/data/julia_fits.json`, `julia_starts.json`) were written again with LocMoFit.jl's share prior on.
+
 ## Compilations kept on disk across SMAPpy sessions (2026-11-09)
 
 **The choice.** The SMAPpy plugin switches on JAX's persistent compilation cache before its first fit (`use_compilation_cache`): the folder `locmofit_jax_cache` in SMAPpy's configuration folder, and a minimum compile time of 0, since JAX's default (1 s) would skip most of our compilations. A folder already set in `JAX_COMPILATION_CACHE_DIR` is kept. `run_locmofit` does not do it, because both settings hold for the whole process and a library should not change them for its caller; MATLAB or a script gets the same by setting `JAX_COMPILATION_CACHE_DIR` and `JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0` in the environment.

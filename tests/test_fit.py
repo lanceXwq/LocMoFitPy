@@ -177,7 +177,7 @@ def test_point_params():
     assert pd.parameter_map.full_parameters(ud)["r1"] == 70
 
 
-# Fits of the tutorial data (one simulated site per model, 15% background, a 300 nm field of view) from the moved start, in float64. Every error must stay within 4× the scatter of one fit that LocMoFit.jl's accuracy benchmark measured in the same setting (LocMoFit.jl/benchmarks/accuracy/prior_5_2_2026-10-28.txt, as LocMoFit.jl's test/fit.jl); an axis's error within its mean plus 4× its scatter. And the fit must equal LocMoFit.jl's on the same data, which uses the same algorithm (tests/data/julia_fits.json).
+# Fits of the tutorial data (one simulated site per model, 15% background, a 300 nm field of view) from the moved start, in float64. Every error must stay within 4× the scatter of one fit that LocMoFit.jl's accuracy benchmark measured in the same setting (LocMoFit.jl/benchmarks/accuracy/share_prior_2026-11-14.txt, as LocMoFit.jl's test/fit.jl; the simple models' values are unchanged since prior_5_2_2026-10-28.txt); an axis's error within its mean plus 4× its scatter, and the ring's share of the cap with a ring within 4× its scatter of the share prior's bias there, +0.0075. And the fit must equal LocMoFit.jl's on the same data, which uses the same algorithm (tests/data/julia_fits.json).
 
 
 def fit(case, model, D):
@@ -269,20 +269,20 @@ def test_fit_double_ring():
     assert r["retcode"] == "Success"
     assert np.all(
         np.abs(c[0]["position"] - t[0]["position"])
-        < 4 * np.array([0.9911, 1.062, 2.571])
+        < 4 * np.array([0.9888, 1.065, 2.576])
     )
     assert np.all(
         np.abs(c[1]["position"] - t[1]["position"])
-        < 4 * np.array([1.223, 1.388, 2.484])
+        < 4 * np.array([1.221, 1.387, 2.473])
     )
     assert (
-        abs(c[0]["r"] - t[0]["r"]) < 4 * 1.001
-        and abs(c[1]["r"] - t[1]["r"]) < 4 * 0.6971
+        abs(c[0]["r"] - t[0]["r"]) < 4 * 1.002
+        and abs(c[1]["r"] - t[1]["r"]) < 4 * 0.6958
     )
-    assert axis_deg(c[0]["axis"], t[0]["axis"]) < 3.841 + 4 * 2.594
-    assert axis_deg(c[1]["axis"], t[1]["axis"]) < 4.687 + 4 * 2.661
-    assert abs(r["signal_fraction"] - np.mean(signal)) < 4 * 0.01165
-    assert abs(r["weights"][0] - np.mean(component[signal] == 1)) < 4 * 0.03392
+    assert axis_deg(c[0]["axis"], t[0]["axis"]) < 3.837 + 4 * 2.595
+    assert axis_deg(c[1]["axis"], t[1]["axis"]) < 4.687 + 4 * 2.659
+    assert abs(r["signal_fraction"] - np.mean(signal)) < 4 * 0.01164
+    assert abs(r["weights"][0] - np.mean(component[signal] == 1)) < 4 * 0.03137
     assert_parity("double_ring", r)
 
 
@@ -309,21 +309,24 @@ def test_fit_cap_with_ring():
     assert r["retcode"] == "Success"
     assert np.all(
         np.abs(c[0]["position"] - t[0]["position"])
-        < 4 * np.array([1.279, 1.513, 2.281])
+        < 4 * np.array([1.281, 1.515, 2.285])
     )
-    assert abs(c[0]["r"] - t[0]["r"]) < 4 * 0.8047
-    assert axis_deg(c[0]["axis"], t[0]["axis"]) < 3.621 + 4 * 1.726
+    assert abs(c[0]["r"] - t[0]["r"]) < 4 * 0.8052
+    assert axis_deg(c[0]["axis"], t[0]["axis"]) < 3.624 + 4 * 1.735
     assert np.all(
         np.abs(center(c[1]) - center(t[1]))
-        < 4 * np.array([2.183, 2.418, 11.07])
+        < 4 * np.array([2.181, 2.418, 11.08])
     )
     assert (
-        abs(c[1]["radius"] - t[1]["radius"]) < 4 * 8.971
-        and abs(c[1]["alpha"] - t[1]["alpha"]) < 4 * 0.193
+        abs(c[1]["radius"] - t[1]["radius"]) < 4 * 8.979
+        and abs(c[1]["alpha"] - t[1]["alpha"]) < 4 * 0.1926
     )
-    assert signed_deg(c[1]["axis"], t[1]["axis"]) < 4.145 + 4 * 2.22
-    assert abs(r["signal_fraction"] - np.mean(signal)) < 4 * 0.01063
-    assert abs(r["weights"][0] - np.mean(component[signal] == 1)) < 4 * 0.01279
+    assert signed_deg(c[1]["axis"], t[1]["axis"]) < 4.134 + 4 * 2.216
+    assert abs(r["signal_fraction"] - np.mean(signal)) < 4 * 0.01061
+    assert (
+        abs(r["weights"][0] - np.mean(component[signal] == 1) - 0.0075)
+        < 4 * 0.01225
+    )
     assert_parity("spcap_ring", r)
 
 

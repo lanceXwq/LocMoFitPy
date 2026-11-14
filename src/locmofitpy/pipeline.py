@@ -33,6 +33,7 @@ class Problem:
     background: bool
     log_volume: float
     signal_prior: tuple[float, float] | None
+    share_prior: float | None
     dtype: Any
 
 
@@ -50,8 +51,13 @@ def fit_problem(
     background: bool = True,
     fov_volume: float | None = None,
     signal_prior: tuple[float, float] | None = (5, 2),
+    share_prior: float | None = 5.0,
 ) -> tuple[Problem, jax.Array]:
     """Everything a fit needs: the `Problem` for `make_loss` and the free parameters `u0` to start from, with what `init_params` leaves open estimated from the localizations (`start.estimate_start`). The keywords are those of `run_locmofit`."""
+    if share_prior is not None and share_prior < 1:
+        raise ValueError(
+            f"share_prior must be at least 1 (or None), got {share_prior}: below 1 the prior grows without bound as a share goes to 0"
+        )
     dtype = np.dtype(dtype)
     if dtype == np.float64:
         jax.config.update("jax_enable_x64", True)
@@ -138,6 +144,7 @@ def fit_problem(
         signal_prior=None
         if signal_prior is None
         else (float(signal_prior[0]), float(signal_prior[1])),
+        share_prior=None if share_prior is None else float(share_prior),
         dtype=dtype,
     )
     return problem, jnp.asarray(u0, dtype=dtype)
@@ -159,9 +166,10 @@ def run_locmofit(
     background: bool = True,
     fov_volume: float | None = None,
     signal_prior: tuple[float, float] | None = (5, 2),
+    share_prior: float | None = 5.0,
     history: bool = False,
 ) -> dict[str, Any]:
-    """Fit `model` to one site's localizations by maximizing the posterior of LocMoFit.jl's derivations/derivation.qmd: a mixture of the structure and a uniform background, with a Beta prior on the signal fraction, by BFGS with a backtracking line search (`bfgs`).
+    """Fit `model` to one site's localizations by maximizing the posterior of LocMoFit.jl's derivations/derivation.qmd: a mixture of the structure and a uniform background, with a Beta prior on the signal fraction and a Dirichlet prior on the components' shares, by BFGS with a backtracking line search (`bfgs`).
 
     - `model`: a model (`Ring()`, `Composite(Ring(), SphericalCap())`, …) or a name (`"Ring"`, `"SphericalCap"`, `"DoubleRing"`, `"SpCapRing"`, case-insensitive, or an alias: `"spcap"`, `"npc"`).
     - `locs`, `loc_precisions`: (N, D) positions and per-axis precisions (standard deviations), in nm, with D ∈ {2, 3}. A 2D fit uses the first two coordinates of the model.
@@ -175,6 +183,7 @@ def run_locmofit(
     - `background`: whether some localizations are background, uniform over the field of view; their share is 1 − logistic(`logit_prob`), fitted from 0.1.
     - `fov_volume`: the volume (area, in 2D) of the field of view, in nm³ (nm²); default the localizations' bounding box, a little smaller.
     - `signal_prior`: `(a, b)` of the Beta prior on the signal fraction, or None. The default, (5, 2), has its mode at 0.8 and weighs as much as 5 localizations.
+    - `share_prior`: alpha of the symmetric Dirichlet prior on the components' shares (Beta(alpha, alpha) for two), at least 1, or None; no effect on a simple model. It keeps every component's share above 0, so that a component cannot be switched off (LocMoFit.jl's derivations/derivation.qmd, A prior on the shares). The default, 5, weighs as much as 4 signal localizations for each component, which moves a share by K(alpha − 1)(1/K − w)/(n + K(alpha − 1)) for n signal localizations and K components: with two components and 100 signal localizations, a share of 0.3 becomes 0.315.
     - `history`: also return the loss and the parameters at the start and after every iteration.
 
     Returns a dict of NumPy arrays and Python scalars (MATLAB-convertible): `parameters` (all of them, by name), `signal_fraction` (None without a background), `weights` (the components' shares), `components` (each component in the world frame: `position`, `axis`, `theta`, `phi` and its shape: a ring's `r`; a cap's `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), `loss`, `model_points` (M, 3), `iterations`, `retcode` (`"Success"`, `"MaxIters"` or `"Failure"`) and `history` (None, or `{"losses", "parameters"}` with one entry per iteration and the start).
@@ -192,6 +201,7 @@ def run_locmofit(
         background=background,
         fov_volume=fov_volume,
         signal_prior=signal_prior,
+        share_prior=share_prior,
     )
     data, static = fit_data(problem, pad=True)
     result, points = compiled_fit(static, max_iter, float(tol), history)(

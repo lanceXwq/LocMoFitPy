@@ -178,8 +178,10 @@ def problem(model, theta, starts, locs, precs, background=True, **kwargs):
     )
 
 
-def reference_loss(locs, precs, Ys, w, sigma, f=None, V=1.0, prior=None):
-    """The posterior of LocMoFit.jl's derivations/derivation.qmd with plain loops: per localization, the mean of the Gaussian densities over each component's points (variances precision² + σ²), the components weighted by w, mixed with a uniform background of density 1/V at signal fraction f; minus the log posterior with the Beta(a, b) prior, per localization."""
+def reference_loss(
+    locs, precs, Ys, w, sigma, f=None, V=1.0, prior=None, share_prior=None
+):
+    """The posterior of LocMoFit.jl's derivations/derivation.qmd with plain loops: per localization, the mean of the Gaussian densities over each component's points (variances precision² + σ²), the components weighted by w, mixed with a uniform background of density 1/V at signal fraction f; minus the log posterior with the Beta(a, b) prior on f and the Dirichlet(alpha) prior on w, per localization."""
     N, D = locs.shape
     total = 0.0
     for n in range(N):
@@ -201,7 +203,12 @@ def reference_loss(locs, precs, Ys, w, sigma, f=None, V=1.0, prior=None):
         if prior is None or f is None
         else (prior[0] - 1) * math.log(f) + (prior[1] - 1) * math.log(1 - f)
     )
-    return -(total + logprior) / N
+    logshares = (
+        0.0
+        if share_prior is None
+        else (share_prior - 1) * sum(math.log(x) for x in w)
+    )
+    return -(total + logprior + logshares) / N
 
 
 def parts(prob, theta, D):

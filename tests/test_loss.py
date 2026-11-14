@@ -154,7 +154,8 @@ def test_log_likelihood_gradient(D):
         "no background",
     ],
 )
-def test_loss_against_reference(case, D, setting):
+@pytest.mark.parametrize("alpha", [5.0, 2.5, None])
+def test_loss_against_reference(case, D, setting, alpha):
     _, model, theta, starts = CASES[case]
     background = setting != "no background"
     prior = {
@@ -170,6 +171,7 @@ def test_loss_against_reference(case, D, setting):
         precs,
         background=background,
         signal_prior=prior,
+        share_prior=alpha,
     )
     thp = p.parameter_map.full_parameters(u)
     assert float(model.penalty(thp)) == 0
@@ -183,8 +185,53 @@ def test_loss_against_reference(case, D, setting):
         f=f,
         V=FOV**D,
         prior=prior,
+        share_prior=alpha,
     )
     assert float(lm.make_loss(p)(u)) == pytest.approx(ref, rel=1e-10)
+
+
+@pytest.mark.parametrize("alpha", [5.0, 2.0, None])
+def test_share_prior_optimum(alpha):
+    # two rings 2 µm apart along their axis, n1 and n2 localizations exactly on them, no background: every localization comes from its own ring (q = 0 or 1 in LocMoFit.jl's derivations/derivation.qmd, @eq-shares), so the share that maximizes the posterior is (n2 + alpha - 1)/(n + 2(alpha - 1)) (@eq-share-map), and n2/n without the prior (as LocMoFit.jl's test)
+    n1, n2, r = 30, 10, 50.0
+
+    def ring(n, z):
+        t = 2 * math.pi * (np.arange(1, n + 1) - 0.5) / n
+        return np.column_stack([r * np.cos(t), r * np.sin(t), np.full(n, z)])
+
+    locs = np.vstack([ring(n1, 0.0), ring(n2, 2000.0)])
+    precs = np.full(locs.shape, 5.0)
+    model = lm.get_model("DoubleRing")
+    theta = {
+        **model.default_parameters(),
+        "r1": r,
+        "r2": r,
+        "z2": 2000.0,
+        "sigma": 1.0,
+    }
+    fixed = tuple(k for k in theta if k != "omega2")
+    fit = lm.run_locmofit(
+        model,
+        locs,
+        precs,
+        init_params=theta,
+        freeze=fixed,
+        background=False,
+        share_prior=alpha,
+        tol=1e-10,
+    )
+    expected = (
+        n2 / (n1 + n2)
+        if alpha is None
+        else (n2 + alpha - 1) / (n1 + n2 + 2 * (alpha - 1))
+    )
+    assert fit["weights"][1] == pytest.approx(expected, rel=1e-6)
+
+
+def test_share_prior_below_one():
+    locs = np.zeros((20, 3))
+    with pytest.raises(ValueError):
+        lm.fit_problem("Ring", locs, np.ones_like(locs), share_prior=0.5)
 
 
 @pytest.mark.parametrize("case", range(len(CASES)))
