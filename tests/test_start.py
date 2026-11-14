@@ -61,23 +61,23 @@ def test_ring():
     assert axis_of(e) == pytest.approx(N_AXIS)
 
 
-@pytest.mark.parametrize("eta", [0.0, 0.5])
-def test_cap(eta):
+@pytest.mark.parametrize("alpha", [0.0, 1.0])
+def test_cap(alpha):
     # each point with its mirror image through the axis: the axis is exact and the apex lies on it; flat, the apex is the center and s² is the true s² less half the summed precision variance (here 3·1²), since the mean squared distance from the apex is 2s²
     U = unit_cap(np.float64, 400)
     U = np.vstack([U, np.column_stack([-U[:, :2], U[:, 2]])])
     local = np.asarray(
-        lm.SphericalCap().local_points(U, {"s": 30.0, "eta": eta})
+        lm.SphericalCap().local_points(U, {"s": 30.0, "alpha": alpha})
     )
     cap = (R @ local.T).T + C
     e = estimate_start(lm.SphericalCap(), cap, np.ones(cap.shape))
     assert axis_of(e) == pytest.approx(N_AXIS)  # κ′ ≥ 0, as the true cap's
     apex = np.array([e["x"], e["y"], e["z"]])
     assert np.linalg.norm(np.cross(apex - C, N_AXIS)) < 1e-9
-    if eta == 0:
+    if alpha == 0:
         assert apex == pytest.approx(C)
         assert e["s"] == pytest.approx(math.sqrt(30**2 - 3 / 2))
-        assert abs(e["eta"]) < 1e-9
+        assert abs(e["alpha"]) < 1e-9
 
 
 def test_scores():

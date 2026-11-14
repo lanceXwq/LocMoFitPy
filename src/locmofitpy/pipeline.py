@@ -159,8 +159,8 @@ def run_locmofit(
     - `locs`, `loc_precisions`: (N, D) positions and per-axis precisions (standard deviations), in nm, with D ∈ {2, 3}. A 2D fit uses the first two coordinates of the model.
     - `params`: a dict of `ParamToFit`, the starting value and the prior of each quantity it names, both in the quantity's own terms; an unknown name raises a `ValueError`. A component k of a composite has its number appended to its quantities' names (`x1`, `r1`, `axis2`, …). The quantities and their default priors:
         - `x`, `y`, `z`: the position of the reference point (a ring's center, a cap's apex), in nm; for component k > 1, in component 1's frame. `Flat()`.
-        - `r` (`Ring`), `s` (`SphericalCap`): the size, in nm (a cap's area is 4πs²). `LogNormal(log(50), 1)`: median 50 nm, 95% between 7 and 355 nm.
-        - `kappa` (`SphericalCap`): the dimensionless curvature κ′ in (−1, 1), from a flat disc at 0 to a whole sphere at ±1. `Flat()`.
+        - `r` (`Ring`), `s` (`SphericalCap`): the size, in nm (a cap's area is 4πs²). `LogNormal(log(50) + 1, 1)`: most probable at 50 nm, median 136 nm, 95% between 19 and 965 nm.
+        - `kappa` (`SphericalCap`): the dimensionless curvature κ′ in [−1, 1], from a flat disc at 0 to a whole sphere at ±1 (a starting value inside (−1, 1)). `Flat()`. It is fitted as the cap's half-angle `alpha`, with κ′ = sin(`alpha`/2).
         - `axis`: the axis, as `(theta, phi)`, its polar angle and azimuth; for component k > 1, in component 1's frame. `Flat()`, uniform on the sphere. It is fitted as the coordinates `vx`, `vy` of a tangent chart centered on its starting value.
         - `sigma`: the blur, in nm, added to every precision in quadrature. `Flat()`.
         - `signal` (with a background): the signal fraction. `Beta(5, 2)`: mode 0.8, as much as 5 localizations, so it keeps the fraction inside (0, 1) and pulls it toward 0.8 only on small sites.
@@ -174,7 +174,7 @@ def run_locmofit(
     - `fov_volume`: the volume (area, in 2D) of the field of view, in nm³ (nm²); default the localizations' bounding box, a little smaller.
     - `history`: also return the loss and the parameters at the start and after every iteration.
 
-    Returns a dict of NumPy arrays and Python scalars (MATLAB-convertible): `parameters` (all of the optimizer's parameters, by name: `logit_prob` for the signal fraction, `omega2`, … for the shares, `eta` for a cap's κ′ = tanh(`eta`), `vx`, `vy` for an axis), `signal_fraction` (None without a background), `weights` (the components' shares), `components` (each component in the world frame: `position`, `axis`, `theta`, `phi` and its shape: a ring's `r`; a cap's `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), `loss`, `model_points` (M, 3), `iterations`, `retcode` (`"Success"`, `"MaxIters"` or `"Failure"`) and `history` (None, or `{"losses", "parameters"}` with one entry per iteration and the start).
+    Returns a dict of NumPy arrays and Python scalars (MATLAB-convertible): `parameters` (all of the optimizer's parameters, by name: `logit_prob` for the signal fraction, `omega2`, … for the shares, `alpha` for a cap's half-angle, κ′ = sin(`alpha`/2), which may come out negative or beyond π, where the shapes repeat (`components` reports the half-angle in [0, π]), `vx`, `vy` for an axis), `signal_fraction` (None without a background), `weights` (the components' shares), `components` (each component in the world frame: `position`, `axis`, `theta`, `phi` and its shape: a ring's `r`; a cap's `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), `loss`, `model_points` (M, 3), `iterations`, `retcode` (`"Success"`, `"MaxIters"` or `"Failure"`) and `history` (None, or `{"losses", "parameters"}` with one entry per iteration and the start).
     """
     problem, u0 = fit_problem(
         model,

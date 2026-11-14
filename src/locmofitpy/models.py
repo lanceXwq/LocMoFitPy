@@ -168,11 +168,11 @@ class Ring(SimpleModel):
 class SphericalCap(SimpleModel):
     """A spherical cap of constant area 4πs², with its apex at its position `(x, y, z)` and its outward normal along its axis.
 
-    Its dimensionless curvature is κ′ = tanh(`eta`) = curvature × `s`: 0 is a flat disc of radius 2s, ±1 the whole sphere of radius s, and a negative κ′ bends the other way. The sphere's radius is s/κ′ and the half-angle from the axis to the rim, seen from the sphere's center, is acos(1 − 2κ′²) (LocMoFit.jl's derivations/derivation.qmd).
+    Its shape is fitted as `alpha`, the half-angle from the axis to the rim seen from the sphere's center, which gives the dimensionless curvature κ′ = sin(`alpha`/2) = curvature × `s` (LocMoFit.jl's derivations/derivation.qmd, @eq-cap-alpha): 0 is a flat disc of radius 2s, ±π/2 a half-sphere, ±π the whole sphere of radius s, and a negative `alpha` bends the other way. The sphere's radius is s/κ′.
     """
 
     def shape_parameters(self):
-        return {"s": 50.0, "eta": 0.5}
+        return {"s": 50.0, "alpha": 0.961}  # a half-angle of 55°, κ′ ≈ 0.46
 
     def unit_points(self, shape, *, spacing, dtype):
         # equal-area points on the unit sphere, as many as the cap's area holds at the spacing
@@ -182,7 +182,7 @@ class SphericalCap(SimpleModel):
     def local_points(self, unit, shape):
         # the unit sphere's point at depth h below its north pole goes to depth s·κ′·h below the apex, at distance s·√(h(2 − κ′²h)) from the axis; each point keeps the area above it, so equal-area points stay equal-area
         unit = jnp.asarray(unit)
-        kappa = jnp.tanh(shape["eta"])
+        kappa = jnp.sin(shape["alpha"] / 2)
         h = unit[:, 2]
         rho = jnp.sqrt(h * (2 - kappa**2 * h))
         return shape["s"] * jnp.stack(
@@ -190,18 +190,18 @@ class SphericalCap(SimpleModel):
         )
 
     def shape_quantities(self, suffix):
-        # the scale, with the default prior on sizes, and the curvature κ′ (`kappa`, fitted as `eta`), uniform on (-1, 1) by default
+        # the scale, with the default prior on sizes, and the curvature κ′ (`kappa`, fitted as the half-angle `alpha`), uniform on [-1, 1] by default
         s = f"s{suffix}"
         return {
             s: (Quantity("size", (s,)), SIZE_PRIOR),
             f"kappa{suffix}": (
-                Quantity("curvature", (f"eta{suffix}", s)),
+                Quantity("curvature", (f"alpha{suffix}", s)),
                 Flat(),
             ),
         }
 
     def shape_summary(self, shape):
-        s, kappa = float(shape["s"]), math.tanh(float(shape["eta"]))
+        s, kappa = float(shape["s"]), math.sin(float(shape["alpha"]) / 2)
         return {
             "s": s,
             "kappa": kappa,
@@ -215,7 +215,7 @@ class SphericalCap(SimpleModel):
 class Composite:
     """Several simple models fitted together as one structure.
 
-    Component 1 is placed in the world by its pose; every other component is placed by its pose in component 1's frame, so that its position and axis are relative to component 1. Each component's parameters keep their names with the component's number appended (`x1`, `r1`, `x2`, `s2`, `eta2`, …); the blur `sigma` is shared. Shape parameters are absolute (a ring's radius and a cap's scale in nm): to make two of them equal, tie them (`params={"r2": ParamToFit(Tied("r1"))}` in `run_locmofit`). `defaults` overrides the generated default starting values.
+    Component 1 is placed in the world by its pose; every other component is placed by its pose in component 1's frame, so that its position and axis are relative to component 1. Each component's parameters keep their names with the component's number appended (`x1`, `r1`, `x2`, `s2`, `alpha2`, …); the blur `sigma` is shared. Shape parameters are absolute (a ring's radius and a cap's scale in nm): to make two of them equal, tie them (`params={"r2": ParamToFit(Tied("r1"))}` in `run_locmofit`). `defaults` overrides the generated default starting values.
 
     Component k explains a share wₖ of the signal localizations, with its points averaged on their own. The shares are softmax(0, `omega2`, …, `omegaK`), so `omega2`, …, `omegaK` (log wₖ/w₁) are fitted; they start at 0 (equal shares), and holding them (`Fixed()` on `shares`) fixes the shares.
     """

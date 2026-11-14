@@ -16,9 +16,8 @@ from .unit_models import GOLDEN_ANGLE
 START_COARSE = 100  # candidate axes spread over the hemisphere
 START_FINE = 64  # candidate axes around the best coarse one,
 START_CONE = math.radians(25)  # within this angle of it
-START_MAX_KAPPA = (
-    0.95  # |κ′| of a starting cap, which keeps eta = atanh κ′ finite
-)
+# |κ′| of a starting cap, which keeps it off the whole sphere (alpha = ±π), where the fit's slope in alpha vanishes
+START_MAX_KAPPA = 0.95
 
 
 def estimate_start(model, locs, loc_precisions, axis=None) -> dict[str, float]:
@@ -217,14 +216,14 @@ def simple_start(model, f: Frame, n, free_axis: bool) -> dict:
     if free_axis and b > 0:
         n, a, b = -n, -a, -b
     apex = f.center + a * n
-    s, eta = cap_shape(f.rel - a * n, f.var, f.c, b)
+    s, alpha = cap_shape(f.rel - a * n, f.var, f.c, b)
     theta, phi = axis_angles(n)
     return {
         "x": apex[0],
         "y": apex[1],
         "z": apex[2],
         "s": s,
-        "eta": eta,
+        "alpha": alpha,
         "theta": theta,
         "phi": phi,
     }
@@ -242,8 +241,10 @@ def cap_shape(d, var, c, b):
     """A cap's size from E|x − apex|² = 2s² + Σ_d s_d² (`d`: the localizations relative to the apex), averaged with the weights c, and its curvature −2b."""
     m = c @ ((d**2).sum(axis=1) - var.sum(axis=1))
     s = np.sqrt(np.maximum(m / (2 * c.sum()), 1.0))
-    eta = np.arctanh(np.clip(-2 * b * s, -START_MAX_KAPPA, START_MAX_KAPPA))
-    return s, eta
+    alpha = 2 * np.arcsin(
+        np.clip(-2 * b * s, -START_MAX_KAPPA, START_MAX_KAPPA)
+    )
+    return s, alpha
 
 
 def part_start(part, f: Frame, w, rho, rho2, G, n):
@@ -251,8 +252,8 @@ def part_start(part, f: Frame, w, rho, rho2, G, n):
     if isinstance(part, Ring):
         return f.center + np.median(w[G]) * n, {"r": np.median(rho[G])}
     a, b = parabola(w[G], rho2[G])
-    s, eta = cap_shape(f.rel[G] - a * n, f.var[G], f.c[G], b)
-    return f.center + a * n, {"s": s, "eta": eta}
+    s, alpha = cap_shape(f.rel[G] - a * n, f.var[G], f.c[G], b)
+    return f.center + a * n, {"s": s, "alpha": alpha}
 
 
 class AxisTerms:

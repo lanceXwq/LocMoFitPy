@@ -40,14 +40,14 @@ def test_ring_points():
     assert np.all(np.abs((X - c) @ n) < 1e-9)
 
 
-@pytest.mark.parametrize("eta", [0.6, -0.4])
-def test_cap_points(eta):
+@pytest.mark.parametrize("alpha", [1.1, -0.8])
+def test_cap_points(alpha):
     # the constant-area cap: on the sphere of radius s/κ′ through the apex, within the half-angle acos(1 - 2κ′²) of the axis; its points are uniform in depth below the apex, which on a sphere (the area of a zone is 2πR times its height) means uniform in area; bending the other way for κ′ < 0
     _, model, theta, starts = CASES[1]
-    theta = {**theta, "eta": eta}
+    theta = {**theta, "alpha": alpha}
     X = np.asarray(model.model_points(unit(model, theta, starts), theta))
     kappa, apex, n = (
-        math.tanh(eta),
+        math.sin(alpha / 2),
         np.array([theta["x"], theta["y"], theta["z"]]),
         pose(starts[0], theta["vx"], theta["vy"])[:, 2],
     )
@@ -67,7 +67,7 @@ def test_cap_points(eta):
 def test_flat_cap():
     # flat at κ′ = 0, with radius 2s
     _, model, theta, starts = CASES[1]
-    theta = {**theta, "eta": 0.0}
+    theta = {**theta, "alpha": 0.0}
     X = np.asarray(model.model_points(unit(model, theta, starts), theta))
     apex, n = (
         np.array([theta["x"], theta["y"], theta["z"]]),
@@ -101,7 +101,7 @@ def test_composite_points():
     c1 = np.array([theta["x1"], theta["y1"], theta["z1"]])
     a2, rho = (
         R1 @ pose(starts[1], theta["vx2"], theta["vy2"])[:, 2],
-        theta["s2"] / math.tanh(theta["eta2"]),
+        theta["s2"] / math.sin(theta["alpha2"] / 2),
     )
     center = (
         c1 + R1 @ np.array([theta["x2"], theta["y2"], theta["z2"]]) - rho * a2
@@ -110,7 +110,7 @@ def test_composite_points():
     assert np.allclose(np.linalg.norm(X[n1:] - center, axis=1), rho)
     cosine = (X[n1:] - center) @ a2 / rho
     assert np.all(
-        (1 - 2 * math.tanh(theta["eta2"]) ** 2 - 1e-9 <= cosine)
+        (1 - 2 * math.sin(theta["alpha2"] / 2) ** 2 - 1e-9 <= cosine)
         & (cosine <= 1 + 1e-9)
     )
 
@@ -124,7 +124,7 @@ def test_composites():
         "y1",
         "z1",
         "s1",
-        "eta1",
+        "alpha1",
         "vx1",
         "vy1",
         "x2",
@@ -158,7 +158,7 @@ def test_composites():
                 y=0.0,
                 z=0.0,
                 s=theta["s1"],
-                eta=theta["eta1"],
+                alpha=theta["alpha1"],
                 vx=0.0,
                 vy=0.0,
             ),
@@ -177,9 +177,9 @@ def test_composites():
     )
     assert comps[1]["r"] == 50.0
     assert comps[0]["kappa"] == pytest.approx(
-        math.tanh(theta["eta1"])
+        math.sin(theta["alpha1"] / 2)
     ) and comps[0]["radius"] == pytest.approx(
-        theta["s1"] / math.tanh(theta["eta1"])
+        theta["s1"] / math.sin(theta["alpha1"] / 2)
     )
     assert comps[0]["area"] == pytest.approx(4 * math.pi * theta["s1"] ** 2)
 

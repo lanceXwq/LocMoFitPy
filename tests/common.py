@@ -67,7 +67,14 @@ CASES = (
         "SphericalCap",
         lm.SphericalCap(),
         dict(
-            x=3.0, y=-2.0, z=5.0, s=35.0, eta=0.6, vx=0.1, vy=-0.05, sigma=2.0
+            x=3.0,
+            y=-2.0,
+            z=5.0,
+            s=35.0,
+            alpha=1.1,
+            vx=0.1,
+            vy=-0.05,
+            sigma=2.0,
         ),
         ((0.4, 1.1),),
     ),
@@ -105,7 +112,7 @@ CASES = (
             y2=-3.0,
             z2=85.0,
             s2=25.0,
-            eta2=0.5,
+            alpha2=1.0,
             vx2=0.05,
             vy2=0.08,
             sigma=2.0,
@@ -162,12 +169,14 @@ def make_data(model, theta, starts, D=3, every=7):
 
 
 def start_params(theta, fixed=(), priors=None):
-    """Starting values given in LocMoFit's parameter names, as in the tutorial's parameter files (`theta`, `phi` for an axis, `eta`, `logit_prob`, `omega2`), as the `params` of `run_locmofit`: each quantity's `ParamToFit` with its value (an axis as `(theta, phi)`, κ′ = tanh(`eta`), the signal fraction logistic(`logit_prob`), the shares softmax(0, `omega2`)), held (`Fixed()`) if its name is in `fixed`, and with its prior from `priors` if named there (else its default); as LocMoFit.jl's test/tutorial.jl."""
+    """Starting values given in LocMoFit's parameter names (`theta`, `phi` for an axis, `alpha` for a cap's half-angle, `logit_prob`, `omega2`), or in those of the tutorial's parameter files, which name a cap's curvature `eta` (κ′ = tanh(`eta`), an earlier parametrization), as the `params` of `run_locmofit`: each quantity's `ParamToFit` with its value (an axis as `(theta, phi)`, κ′ = sin(`alpha`/2) or tanh(`eta`), the signal fraction logistic(`logit_prob`), the shares softmax(0, `omega2`)), held (`Fixed()`) if its name is in `fixed`, and with its prior from `priors` if named there (else its default); as LocMoFit.jl's test/tutorial.jl."""
     priors = priors or {}
     values = {}
     for k, v in theta.items():
         if k.startswith("theta"):
             values[f"axis{k[5:]}"] = (v, theta[f"phi{k[5:]}"])
+        elif k.startswith("alpha"):
+            values[f"kappa{k[5:]}"] = math.sin(v / 2)
         elif k.startswith("eta"):
             values[f"kappa{k[3:]}"] = math.tanh(v)
         elif k == "logit_prob":
@@ -269,9 +278,10 @@ def names_of(model, of):
 
 
 def default_priors(model, background):
-    """The default priors as `run_locmofit` documents them: a log-normal of median 50 nm and logarithmic spread 1 on every ring's radius and cap's scale, Beta(5, 2) on the signal fraction, Dirichlet(5) on a composite's shares, and flat otherwise."""
+    """The default priors as `run_locmofit` documents them: a log-normal most probable at 50 nm (median 50e nm), with logarithmic spread 1, on every ring's radius and cap's scale, Beta(5, 2) on the signal fraction, Dirichlet(5) on a composite's shares, and flat otherwise."""
     out = {
-        k: lm.LogNormal(math.log(50), 1) for k in names_of(model, ("r", "s"))
+        k: lm.LogNormal(math.log(50) + 1, 1)
+        for k in names_of(model, ("r", "s"))
     }
     if background:
         out["signal"] = lm.Beta(5, 2)
@@ -301,7 +311,7 @@ def every_prior(model):
 
 
 def reference_log_prior(model, theta, starts, priors):
-    """The log prior of LocMoFit.jl's derivations/derivation.qmd (Priors on every parameter) with plain formulas, for the priors `priors` at the parameters θ: each density at its quantity, a size's magnitude, a cap's κ′ = sign(s)·tanh(η), an axis by the independent construction `pose` (for component 2, in component 1's frame), the signal fraction and the shares."""
+    """The log prior of LocMoFit.jl's derivations/derivation.qmd (Priors on every parameter) with plain formulas, for the priors `priors` at the parameters θ: each density at its quantity, a size's magnitude, a cap's κ′ = sign(s)·sin(α/2), an axis by the independent construction `pose` (for component 2, in component 1's frame), the signal fraction and the shares."""
     total = 0.0
     for name, prior in priors.items():
         if name == "signal":
@@ -317,7 +327,9 @@ def reference_log_prior(model, theta, starts, priors):
             )[:, 2]
         elif name.startswith("kappa"):
             k = name[5:]
-            q = math.copysign(1, theta[f"s{k}"]) * math.tanh(theta[f"eta{k}"])
+            q = math.copysign(1, theta[f"s{k}"]) * math.sin(
+                theta[f"alpha{k}"] / 2
+            )
         elif name == "sigma" or name[0] in "rs":
             q = abs(float(theta[name]))
         else:

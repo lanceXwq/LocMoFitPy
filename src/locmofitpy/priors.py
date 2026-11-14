@@ -21,12 +21,12 @@ class Prior:
 
 @dataclass(frozen=True)
 class Flat(Prior):
-    """A constant density: no prior term. It is proper on a bounded quantity (a cap's `kappa` in (−1, 1), an axis on the sphere, the signal fraction, the shares) and improper on a position or a size, which the localizations must then determine."""
+    """A constant density: no prior term. It is proper on a bounded quantity (a cap's `kappa` in [−1, 1], an axis on the sphere, the signal fraction, the shares) and improper on a position or a size, which the localizations must then determine."""
 
 
 @dataclass(frozen=True)
 class Normal(Prior):
-    """The normal density of a position (nm), a size (nm; of its magnitude, so that `Normal(0, sd)` on `sigma` is a half-normal) or a cap's `kappa` (restricted to (−1, 1))."""
+    """The normal density of a position (nm), a size (nm; of its magnitude, so that `Normal(0, sd)` on `sigma` is a half-normal) or a cap's `kappa` (restricted to [−1, 1])."""
 
     mean: float
     sd: float
@@ -38,7 +38,7 @@ class Normal(Prior):
 
 @dataclass(frozen=True)
 class LogNormal(Prior):
-    """The log-normal density of a size (nm): its logarithm is normal with mean `mu` and standard deviation `sigma`, so its median is exp(`mu`) and it spreads by a factor exp(`sigma`) (@eq-lognormal). It vanishes at 0, so a size with this prior cannot shrink to a point. The default of a ring's `r` and a cap's `s` is `LogNormal(log(50), 1)`: median 50 nm, 95% of it between 7 and 355 nm."""
+    """The log-normal density of a size (nm): its logarithm is normal with mean `mu` and standard deviation `sigma`, so its median is exp(`mu`) and it spreads by a factor exp(`sigma`) (@eq-lognormal). It vanishes at 0, so a size with this prior cannot shrink to a point. Its most probable value, which a fit's maximum favors, is exp(`mu` − `sigma`²). The default of a ring's `r` and a cap's `s` is `LogNormal(log(50) + 1, 1)`: most probable at 50 nm, median 136 nm, 95% of it between 19 and 965 nm."""
 
     mu: float
     sigma: float
@@ -119,14 +119,14 @@ class ParamToFit:
 
 @dataclass(frozen=True)
 class Quantity:
-    """A quantity priors are stated in, computed from the optimizer's parameters `names`: a `"location"` (a position, nm), a `"size"` (the magnitude of a parameter, which the likelihood is even in), a `"curvature"` (κ′ = sign(s)·tanh(η), from η and s: the cap of scale −s is the cap of scale s with the opposite curvature), an `"axis"` (of `component`, from its chart coordinates vx, vy), the `"signal"` fraction (from `logit_prob`) or the `"shares"` (softmax(0, ω₂, …))."""
+    """A quantity priors are stated in, computed from the optimizer's parameters `names`: a `"location"` (a position, nm), a `"size"` (the magnitude of a parameter, which the likelihood is even in), a `"curvature"` (κ′ = sign(s)·sin(α/2), from the half-angle α and s: the cap of scale −s is the cap of scale s with the opposite curvature), an `"axis"` (of `component`, from its chart coordinates vx, vy), the `"signal"` fraction (from `logit_prob`) or the `"shares"` (softmax(0, ω₂, …))."""
 
     kind: str
     names: tuple[str, ...]
     component: int = 1
 
 
-SIZE_PRIOR = LogNormal(math.log(50.0), 1.0)
+SIZE_PRIOR = LogNormal(math.log(50.0) + 1, 1.0)
 SIGNAL_PRIOR = Beta(5.0, 2.0)
 SHARE_PRIOR = Dirichlet(5.0)
 
@@ -160,7 +160,7 @@ def start_values(q: Quantity, value, axes) -> dict[str, float]:
     if q.kind == "curvature":
         if not abs(value) < 1:
             raise ValueError(f"kappa must lie in (-1, 1), got {value}")
-        return {q.names[0]: math.atanh(value)}
+        return {q.names[0]: 2 * math.asin(value)}
     if q.kind == "axis":
         if np.ndim(value) != 1 or len(value) != 2:
             raise ValueError(
@@ -268,7 +268,7 @@ def quantity(kind: str, names: tuple[str, ...], theta: dict):
     if kind == "size":
         return jnp.abs(theta[names[0]])
     if kind == "curvature":
-        return jnp.sign(theta[names[1]]) * jnp.tanh(theta[names[0]])
+        return jnp.sign(theta[names[1]]) * jnp.sin(theta[names[0]] / 2)
     if kind == "axis":
         vx, vy = theta[names[0]], theta[names[1]]
         r = 1 / jnp.sqrt(1 + vx**2 + vy**2)

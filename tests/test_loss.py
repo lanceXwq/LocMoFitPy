@@ -264,7 +264,7 @@ def test_length_unit(case, D):
         starts,
         locs / L,
         precs / L,
-        priors={k: lm.LogNormal(math.log(50 / L), 1) for k in sizes},
+        priors={k: lm.LogNormal(math.log(50 / L) + 1, 1) for k in sizes},
         spacing=SPACING / L,
         fov=FOV / L,
     )
@@ -358,7 +358,7 @@ def test_priors():
             y2=0.0,
             z2=85.0,
             s2=30.0,
-            eta2=math.atanh(0.5),
+            alpha2=math.pi / 3,
             theta2=0.2,
             phi2=-0.7,
         ),
@@ -386,9 +386,9 @@ def test_priors():
     th = fit["parameters"]
     assert th["z2"] == pytest.approx(70, rel=1e-8)
     assert abs(th["s2"]) == pytest.approx(40 * math.exp(-(0.5**2)), rel=1e-8)
-    assert math.copysign(1, th["s2"]) * math.tanh(th["eta2"]) == pytest.approx(
-        0.3, rel=1e-8
-    )
+    assert math.copysign(1, th["s2"]) * math.sin(
+        th["alpha2"] / 2
+    ) == pytest.approx(0.3, rel=1e-8)
     axis = pose((0.2, -0.7), th["vx2"], th["vy2"])[:, 2]
     assert abs(axis @ direction(0.5, 1.0)) == pytest.approx(1, rel=1e-10)
 
