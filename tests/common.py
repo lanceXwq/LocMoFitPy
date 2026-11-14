@@ -1,6 +1,7 @@
 """Shared test inputs and independent references, as in LocMoFit.jl's test/runtests.jl and test/fit.jl."""
 
 import csv
+import json
 import math
 from pathlib import Path
 
@@ -358,10 +359,6 @@ def shares(model, theta):
     return np.exp(omega) / np.exp(omega).sum()
 
 
-def full(prob, u):
-    return prob.parameter_map.full_parameters(u)
-
-
 def readcsv(path):
     """A CSV as a dict of float arrays ("true"/"false" as 1/0)."""
     with open(path) as io:
@@ -410,23 +407,23 @@ def moved(p):
     return out
 
 
-def julia_reference(case):
-    import json
-
-    return json.loads(
-        (Path(__file__).parent / "data" / "julia_fits.json").read_text()
-    )[case]
+# LocMoFit.jl's fits of the tutorial data from the moved start, in float64 (tests/data/julia_fits.jl).
+JULIA = json.loads(
+    (Path(__file__).parent / "data" / "julia_fits.json").read_text()
+)
 
 
-def fit_on_device(case, model, D, device):
-    """The tutorial fit of `case` from the moved start, in float64, on `device`."""
-    locs, precs, truth, _, _ = tutorial(case, D)
-    with jax.default_device(device):
-        return lm.run_locmofit(
-            model,
-            locs,
-            precs,
-            params=start_params(moved(truth)),
-            dtype="float64",
-            fov_volume=300.0**D,
-        )
+def tutorial_fit(model, locs, precs, truth):
+    """The fit of a tutorial site from the moved start, in float64; in 2D, z is undetermined and held at its true value."""
+    D = locs.shape[1]
+    init, fixed = moved(truth), ()
+    if D == 2:
+        init["z"], fixed = truth["z"], ("z",)
+    return lm.run_locmofit(
+        model,
+        locs,
+        precs,
+        params=start_params(init, fixed=fixed),
+        dtype="float64",
+        fov_volume=300.0**D,
+    )

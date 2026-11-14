@@ -1,31 +1,26 @@
 """`run_locmofit`, fits of the tutorial data against the truth, and parity with LocMoFit.jl, as in LocMoFit.jl's test/runtests.jl and test/fit.jl."""
 
-import json
 import math
-from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from common import (
     CASES,
+    JULIA,
     SPACING,
     axes_init,
     case_params,
     direction,
     make_data,
-    moved,
     start_params,
     tutorial,
+    tutorial_fit,
     without_chart,
 )
 
 import locmofitpy as lm
 from locmofitpy.transformations import chart_rotation
-
-JULIA = json.loads(
-    (Path(__file__).parent / "data" / "julia_fits.json").read_text()
-)
 
 
 def test_run_locmofit():
@@ -158,17 +153,7 @@ def test_point_params():
 
 def fit(case, model, D):
     locs, precs, truth, signal, component = tutorial(case, D)
-    init, fixed = moved(truth), ()
-    if D == 2:  # z is undetermined in 2D and held
-        init["z"], fixed = truth["z"], ("z",)
-    r = lm.run_locmofit(
-        model,
-        locs,
-        precs,
-        params=start_params(init, fixed=fixed),
-        dtype="float64",
-        fov_volume=300.0**D,
-    )
+    r = tutorial_fit(model, locs, precs, truth)
     # the true structure in the world frame, as run_locmofit reports a fitted one
     p, u = lm.fit_problem(
         model, locs, precs, params=start_params(truth), dtype="float64"
@@ -180,21 +165,17 @@ def fit(case, model, D):
     return r, t, signal, component
 
 
-def axis_deg(a, b):  # a ring's axis has no sign
-    angle = math.degrees(
-        math.acos(
-            np.clip(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)), -1, 1)
-        )
-    )
-    return min(angle, 180 - angle)
-
-
 def signed_deg(a, b):  # a cap's axis has a sign
     return math.degrees(
         math.acos(
             np.clip(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)), -1, 1)
         )
     )
+
+
+def axis_deg(a, b):  # a ring's axis has no sign
+    angle = signed_deg(a, b)
+    return min(angle, 180 - angle)
 
 
 def assert_parity(case, r):
@@ -315,11 +296,8 @@ def test_fit_cap_with_ring():
     ],
 )
 def test_fit_from_estimated_start(case, model):
-    # with no starting values given, every 3D tutorial fit starts from the data and reaches the optimum the truth-started fit reaches (or a better one): its loss no more than 0.01 per localization above, the threshold LocMoFit.jl's NOTES.md counts a miss by, while the wrong maxima found on simulated sites lay 0.04–0.7 above (as LocMoFit.jl's test/fit.jl)
-    locs, precs, truth, _, _ = tutorial(case, 3)
+    # with no starting values given, every 3D tutorial fit starts from the data and reaches the optimum the moved-start fit reaches (or a better one), the fit that the tests above check against the truth and against LocMoFit.jl's (tests/data/julia_fits.json): its loss no more than 0.01 per localization above, the threshold LocMoFit.jl's NOTES.md counts a miss by, while the wrong maxima found on simulated sites lay 0.04–0.7 above (as LocMoFit.jl's test/fit.jl)
+    locs, precs, _, _, _ = tutorial(case, 3)
     a = lm.run_locmofit(model, locs, precs, fov_volume=300.0**3)
-    t = lm.run_locmofit(
-        model, locs, precs, params=start_params(truth), fov_volume=300.0**3
-    )
     assert a["retcode"] == "Success"
-    assert a["loss"] < t["loss"] + 0.01
+    assert a["loss"] < JULIA[case]["loss"] + 0.01

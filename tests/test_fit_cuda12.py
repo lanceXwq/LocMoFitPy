@@ -2,7 +2,7 @@
 
 import jax
 import pytest
-from common import fit_on_device, julia_reference
+from common import JULIA, tutorial, tutorial_fit
 
 pytestmark = pytest.mark.skipif(
     not any(d.platform == "gpu" for d in jax.devices()), reason="no GPU"
@@ -10,8 +10,8 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_spcap_fit_cuda12():
-    r = fit_on_device("spcap", "SphericalCap", 3, jax.devices("gpu")[0])
+    locs, precs, truth, _, _ = tutorial("spcap", 3)
+    with jax.default_device(jax.devices("gpu")[0]):
+        r = tutorial_fit("SphericalCap", locs, precs, truth)
     assert r["retcode"] == "Success"
-    assert r["loss"] == pytest.approx(
-        julia_reference("spcap")["loss"], rel=1e-8
-    )
+    assert r["loss"] == pytest.approx(JULIA["spcap"]["loss"], rel=1e-8)

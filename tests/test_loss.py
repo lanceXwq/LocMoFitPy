@@ -29,8 +29,8 @@ from common import (
 import locmofitpy as lm
 
 
-def test_log_likelihood_float32_far_from_origin():
-    # far from the origin (40 µm), single precision keeps each localization's log density: rounding the coordinates to float32 moves each difference by at most u, one unit in the last place at 40 µm (0.004 nm), so the log density of each Gaussian errs by at most Σ_d (2|x_d - y_d|·u + u²)/(2v_d) (LocMoFit.jl's derivations/derivation.qmd), and the log of their mean by at most the largest of these; expanding the square would err by about ε·x²/v ≈ 20
+def kernel_inputs():
+    """10 localizations, their precisions and 20 points, for the tests of the likelihood kernel."""
     x = np.array(
         [[10 * pseudo(i, j) for i in range(1, 4)] for j in range(1, 11)]
     )
@@ -43,22 +43,37 @@ def test_log_likelihood_float32_far_from_origin():
             for j in range(1, 11)
         ]
     )
+    return x, y, s
+
+
+def test_log_likelihood_float32_far_from_origin():
+    # far from the origin (40 µm), single precision keeps each localization's log density: rounding the coordinates to float32 moves each difference by at most u, one unit in the last place at 40 µm (0.004 nm), so the log density of each Gaussian errs by at most Σ_d (2|x_d - y_d|·u + u²)/(2v_d) (LocMoFit.jl's derivations/derivation.qmd), and the log of their mean by at most the largest of these; expanding the square would err by about ε·x²/v ≈ 20
+    x, y, s = kernel_inputs()
     sigma, shift = 1.5, 40_000.0
+
+    @jax.jit
+    def one(x, s, y, sigma):  # one localization's log density
+        return lm.log_likelihood(
+            x,
+            s,
+            y,
+            (range(0, 20),),
+            sigma,
+            jnp.zeros(1, sigma.dtype),
+            0.0,
+            0.0,
+            False,
+        )
 
     def logp(dtype, shift):
         return np.array(
             [
                 float(
-                    lm.log_likelihood(
+                    one(
                         jnp.asarray(x[n : n + 1] + shift, dtype),
                         jnp.asarray(s[n : n + 1], dtype),
                         jnp.asarray(y + shift, dtype),
-                        (range(0, 20),),
                         jnp.asarray(sigma, dtype),
-                        jnp.zeros(1, dtype),
-                        0.0,
-                        0.0,
-                        False,
                     )
                 )
                 for n in range(10)
@@ -88,22 +103,12 @@ def test_log_likelihood_float32_far_from_origin():
 @pytest.mark.parametrize("D", [3, 2])
 def test_log_likelihood_gradient(D):
     # the closed-form gradient (_ll_bwd) against central differences, as LocMoFit.jl tests likelihood_pass: with respect to the points, sigma, the log weights of two components and the two log fractions of the mixture with the background, in 3D and 2D (where the points' third coordinate has no effect)
-    x = np.array(
-        [[10 * pseudo(i, j) for i in range(1, 4)] for j in range(1, 11)]
-    )
-    y = np.array(
-        [[10 * pseudo(i, j + 50) for i in range(1, 4)] for j in range(1, 21)]
-    )
-    s = np.array(
-        [
-            [0.5 + abs(pseudo(i, j + 99)) for i in range(1, 4)]
-            for j in range(1, 11)
-        ]
-    )
+    x, y, s = kernel_inputs()
     ranges = (range(0, 8), range(8, 20))
     sigma, logw = 1.5, np.log([0.3, 0.7])
     a, b = math.log(0.8), math.log(0.2) - 3 * math.log(30.0)
 
+    @jax.jit
     def f(y, sigma, logw, a, b):
         return lm.log_likelihood(
             jnp.asarray(x[:, :D]),
@@ -149,47 +154,34 @@ def test_log_likelihood_gradient(D):
     assert close(g[3], fd(3, h)) and close(g[4], fd(4, h))
 
 
-def prior_variant(name, model, background):
-    """The priors of a variant of the reference test, or None where it does not apply (the signal fraction's need a background, the shares' a composite)."""
-    composite = isinstance(model, lm.Composite)
-    return {
-        "default": {},
-        "signal Beta(197, 50)": {"signal": lm.Beta(197, 50)}
-        if background
-        else None,
-        "signal flat": {"signal": lm.Flat()} if background else None,
-        "shares Dirichlet(2.5)": {"shares": lm.Dirichlet(2.5)}
-        if composite
-        else None,
-        "shares flat": {"shares": lm.Flat()} if composite else None,
-        "flat sizes": {k: lm.Flat() for k in names_of(model, ("r", "s"))},
-        "every prior": every_prior(model),
-    }[name]
+def prior_variants(model, background):
+    """The priors of each variant of the reference test that applies to the model: the defaults, each default replaced (the signal fraction's need a background, the shares' a composite), flat sizes, and every other quantity with a prior."""
+    out = {"default": {}}
+    if background:
+        out["signal Beta(197, 50)"] = {"signal": lm.Beta(197, 50)}
+        out["signal flat"] = {"signal": lm.Flat()}
+    if isinstance(model, lm.Composite):
+        out["shares Dirichlet(2.5)"] = {"shares": lm.Dirichlet(2.5)}
+        out["shares flat"] = {"shares": lm.Flat()}
+    out["flat sizes"] = {k: lm.Flat() for k in names_of(model, ("r", "s"))}
+    out["every prior"] = every_prior(model)
+    return out
 
 
 VARIANTS = [
     (case, D, background, name)
-    for case in range(len(CASES))
+    for case, (_, model, _, _) in enumerate(CASES)
     for D in (3, 2)
     for background in (True, False)
-    for name in (
-        "default",
-        "signal Beta(197, 50)",
-        "signal flat",
-        "shares Dirichlet(2.5)",
-        "shares flat",
-        "flat sizes",
-        "every prior",
-    )
-    if prior_variant(name, CASES[case][1], background) is not None
+    for name in (prior_variants(model, background) if D == 3 else ("default",))
 ]
 
 
 @pytest.mark.parametrize("case, D, background, variant", VARIANTS)
 def test_loss_against_reference(case, D, background, variant):
-    # the posterior with its default priors, then with each default replaced (the signal fraction's, the shares', and flat sizes) and with every other quantity given a prior, as LocMoFit.jl's test
+    # the posterior with its default priors, then with each default replaced (the signal fraction's, the shares', and flat sizes) and with every other quantity given a prior, as LocMoFit.jl's test; the log prior does not depend on D, so in 2D only the defaults
     _, model, theta, starts = CASES[case]
-    priors = prior_variant(variant, model, background)
+    priors = prior_variants(model, background)[variant]
     locs, precs = make_data(model, theta, starts, D=D)
     p, u = problem(
         model, theta, starts, locs, precs, background=background, priors=priors
@@ -306,7 +298,7 @@ def test_gradient(case, kwargs, D):
     _, model, theta, starts = CASES[case]
     locs, precs = make_data(model, theta, starts, D=D)
     p, u = problem(model, theta, starts, locs, precs, **kwargs)
-    loss = lm.make_loss(p)
+    loss = jax.jit(lm.make_loss(p))
     g = np.asarray(jax.grad(loss)(u))
     fd = []
     for i in range(len(u)):
@@ -318,14 +310,14 @@ def test_gradient(case, kwargs, D):
     assert np.allclose(g, fd, rtol=1e-5, atol=1e-8 * np.max(np.abs(fd)))
 
 
-@pytest.mark.parametrize("case", range(len(CASES)))
 @pytest.mark.parametrize("D", [3, 2])
-def test_padding(case, D):
-    # run_locmofit pads the localizations and each component's points to bucket sizes and masks the padding, so that sites of similar sizes share one compilation: the padded loss and its gradient equal the exact ones
-    _, model, theta, starts = CASES[case]
+def test_padding(D):
+    # run_locmofit pads the localizations and each component's points to bucket sizes and masks the padding, so that sites of similar sizes share one compilation: the padded loss and its gradient equal the exact ones; on SpCapRing, whose ring and cap give both kinds of component block
+    _, model, theta, starts = CASES[3]
     locs, precs = make_data(model, theta, starts, D=D, every=3)
     p, u = problem(model, theta, starts, locs, precs)
-    exact, padded = lm.make_loss(p), lm.make_loss(p, pad=True)
+    exact = jax.jit(lm.make_loss(p))
+    padded = jax.jit(lm.make_loss(p, pad=True))
     data, static = lm.loss.fit_data(p, pad=True)
     assert len(data.locs) > len(locs) or any(
         e - s > r.stop - r.start for (s, e), r in zip(static.blocks, p.ranges)
