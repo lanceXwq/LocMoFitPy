@@ -22,6 +22,7 @@ from .priors import (
     Prior,
     Tied,
     Watson,
+    Bingham,
 )
 
 __all__ = [
@@ -46,6 +47,7 @@ __all__ = [
     "Beta",
     "Dirichlet",
     "Watson",
+    "Bingham",
     "Fixed",
     "Tied",
 ]

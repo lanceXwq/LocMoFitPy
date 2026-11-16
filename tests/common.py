@@ -291,7 +291,7 @@ def default_priors(model, background):
 
 
 def every_prior(model):
-    """Every kind of prior that is flat by default, on the case's model: a normal density on the height (z, or z2 in component 1's frame), on κ′ and, centered at 0, on the blur; a log-normal on the sizes, and a Watson density on every axis (a girdle for the second)."""
+    """Every kind of prior that is flat by default, on the case's model: a normal density on the height (z, or z2 in component 1's frame), on κ′ and, centered at 0, on the blur; a log-normal on the sizes, and on every axis a Watson density or, on a composite's first axis, a Bingham density (on the second, a girdle)."""
     composite = isinstance(model, lm.Composite)
     out = {"z2": lm.Normal(70, 15)} if composite else {"z": lm.Normal(2, 4)}
     out.update(
@@ -303,7 +303,9 @@ def every_prior(model):
     out.update({k: lm.Normal(0.3, 0.2) for k in names_of(model, ("kappa",))})
     out["sigma"] = lm.Normal(0, 10)
     if composite:
-        out["axis1"] = lm.Watson(0.5, 1.0, 3.0)
+        out["axis1"] = lm.Bingham(
+            lm.Watson(0.5, 1.0, 3.0), lm.Watson(0.5 + math.pi / 2, 1.0, -2.0)
+        )
         out["axis2"] = lm.Watson(0.1, -0.3, -2.0)
     else:
         out["axis"] = lm.Watson(0.5, 1.0, 3.0)
@@ -342,6 +344,11 @@ def reference_log_prior(model, theta, starts, priors):
             )
         elif isinstance(prior, lm.Watson):
             total += prior.kappa * (direction(prior.theta, prior.phi) @ q) ** 2
+        elif isinstance(prior, lm.Bingham):
+            total += sum(
+                t.kappa * (direction(t.theta, t.phi) @ q) ** 2
+                for t in prior.terms
+            )
         elif isinstance(prior, lm.Beta):
             total += (prior.a - 1) * math.log(q) + (prior.b - 1) * math.log(
                 1 - q

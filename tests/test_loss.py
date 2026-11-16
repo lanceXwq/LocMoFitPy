@@ -329,7 +329,7 @@ def test_padding(D):
 
 
 def test_priors():
-    # where the likelihood does not depend on a quantity, the fit ends at its prior's mode (LocMoFit.jl's derivations/derivation.qmd, Priors on every parameter): the height of a ring in 2D under a normal density; and the cap of a SpCapRing whose share is held at 1e-20, fitted to a ring's localizations with a background, so that the cap's density is negligible next to the background's: its height z2 at the normal's mean, its scale at the log-normal's mode exp(mu - sigma²), its κ′ at the normal's mean, and its axis along ±μ of the Watson density (as LocMoFit.jl's test)
+    # where the likelihood does not depend on a quantity, the fit ends at its prior's mode (LocMoFit.jl's derivations/derivation.qmd, Priors on every parameter): the height of a ring in 2D under a normal density; and the cap of a SpCapRing whose share is held at 1e-20, fitted to a ring's localizations with a background, so that the cap's density is negligible next to the background's: its height z2 at the normal's mean, its scale at the log-normal's mode exp(mu - sigma²), its κ′ at the normal's mean, and its axis along ±d under a Bingham density that holds it near the plane perpendicular to ν = (θ, ϕ) = (0.5 + π/2, 1) (κ = −5) and pulls it toward d = (0.5, 1), perpendicular to ν, within that plane (κ = 2): d is the eigenvector of A with the largest eigenvalue (as LocMoFit.jl's test)
     _, model, theta, starts = CASES[0]
     locs, precs = make_data(model, theta, starts, D=2)
     held = tuple(k for k in case_params(model, theta, starts) if k != "z")
@@ -370,7 +370,9 @@ def test_priors():
         z2=lm.Normal(70, 5),
         s2=lm.LogNormal(math.log(40), 0.5),
         kappa2=lm.Normal(0.3, 0.2),
-        axis2=lm.Watson(0.5, 1.0, 3.0),
+        axis2=lm.Bingham(
+            lm.Watson(0.5 + math.pi / 2, 1.0, -5.0), lm.Watson(0.5, 1.0, 2.0)
+        ),
     )
     params = {
         **start_params(
@@ -412,6 +414,11 @@ def test_priors():
             {"r": lm.ParamToFit(lm.Watson(0, 0, 1))},
             True,
         ),  # a Watson density fits axes only
+        (
+            "Ring",
+            {"r": lm.ParamToFit(lm.Bingham(lm.Watson(0, 0, 1)))},
+            True,
+        ),  # and so does a Bingham density
         ("Ring", {"axis": lm.ParamToFit(lm.Normal(0, 1))}, True),
         ("Ring", {"signal": lm.ParamToFit(lm.Dirichlet(5))}, True),
         (
@@ -457,6 +464,7 @@ def test_params_refused(model, params, background):
         lambda: lm.LogNormal(0, -1),
         lambda: lm.Beta(0.5, 2),
         lambda: lm.Dirichlet(0.5),
+        lambda: lm.Bingham(),
     ],
 )
 def test_prior_parameters_refused(make):

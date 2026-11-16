@@ -86,6 +86,20 @@ class Watson(Prior):
     kappa: float
 
 
+@dataclass(frozen=True, init=False)
+class Bingham(Prior):
+    """The Bingham density of an axis on the sphere, ∝ exp(Σⱼ kappaⱼ (μⱼ·n)²): the product of the Watson densities `terms`, whose exponents it adds (LocMoFit.jl's derivations/derivation.qmd, @eq-bingham). With perpendicular μ's it holds the axis to a different spread in each direction: `Bingham(Watson(0, 0, -1000), Watson(math.pi / 2, -math.pi / 2, 2.6))` keeps an axis near the xy plane (its tilt out of it with SD ≈ 1/√(2·1000) rad ≈ 1.3°) and near ±y within it (its turn with SD ≈ 1/√(2·2.6) rad ≈ 25°). It gives n and −n the same density and is proper for every kappa. For component k > 1 of a composite, the μ's are in component 1's frame, as the axis is."""
+
+    terms: tuple
+
+    def __init__(self, *terms):
+        if not terms or not all(isinstance(t, Watson) for t in terms):
+            raise ValueError(
+                f"a Bingham density is given as one or more Watson terms, got {terms!r}"
+            )
+        object.__setattr__(self, "terms", tuple(terms))
+
+
 @dataclass(frozen=True)
 class Fixed(Prior):
     """A point mass at the quantity's starting value: the quantity is not fitted. Without a value it is held at its default."""
@@ -135,7 +149,7 @@ _SUPPORTS = {
     "location": (Normal, Tied),
     "size": (Normal, LogNormal, Tied),
     "curvature": (Normal, Tied),
-    "axis": (Watson,),
+    "axis": (Watson, Bingham),
     "signal": (Beta,),
     "shares": (Dirichlet,),
 }
@@ -234,7 +248,7 @@ def specification(model, background: bool, params, axes) -> dict:
 
 
 def prior_terms(priors, unit_model) -> tuple[tuple, tuple]:
-    """The priors of `specification` as the loss evaluates them: a static description of each term, `(kind, names, family)`, which the fit is compiled for, and its numbers, which the fit takes as data. A Watson density becomes a density in the chart's coordinates: μ·n = (R₀ᵀμ)·m for the axis n = R₀m, so it needs only m and R₀ᵀμ, which is fixed for the whole fit."""
+    """The priors of `specification` as the loss evaluates them: a static description of each term, `(kind, names, family)`, which the fit is compiled for, and its numbers, which the fit takes as data. A Watson or Bingham density becomes the quadratic form mᵀA′m in the chart's coordinates, with A′ = R₀ᵀAR₀ for the axis n = R₀m and A = Σⱼ κⱼμⱼμⱼᵀ, fixed for the whole fit; its numbers are A′'s six distinct entries a₁₁, a₂₂, a₃₃, a₁₂, a₁₃, a₂₃."""
     static, numbers = [], []
     for q, p in priors:
         values: tuple[float, ...]
@@ -246,16 +260,20 @@ def prior_terms(priors, unit_model) -> tuple[tuple, tuple]:
             family, values = "beta", (p.a, p.b)
         elif isinstance(p, Dirichlet):
             family, values = "dirichlet", (p.alpha,)
-        else:  # Watson
+        else:  # Watson or Bingham
             R0 = np.asarray(unit_model[q.component - 1][1], dtype=float)
-            mu = R0.T @ np.array(
-                [
-                    math.sin(p.theta) * math.cos(p.phi),
-                    math.sin(p.theta) * math.sin(p.phi),
-                    math.cos(p.theta),
-                ]
-            )
-            family, values = "watson", (*mu, p.kappa)
+            A = np.zeros((3, 3))
+            for t in p.terms if isinstance(p, Bingham) else (p,):
+                mu = R0.T @ np.array(
+                    [
+                        math.sin(t.theta) * math.cos(t.phi),
+                        math.sin(t.theta) * math.sin(t.phi),
+                        math.cos(t.theta),
+                    ]
+                )
+                A += t.kappa * np.outer(mu, mu)
+            family = "quadratic"
+            values = (A[0, 0], A[1, 1], A[2, 2], A[0, 1], A[0, 2], A[1, 2])
         static.append((q.kind, q.names, family))
         numbers.append(tuple(float(v) for v in values))
     return tuple(static), tuple(numbers)
@@ -293,7 +311,13 @@ def log_density(family: str, p, q):
         return (p[0] - 1) * q[0] + (p[1] - 1) * q[1]
     if family == "dirichlet":
         return (p[0] - 1) * jnp.sum(q)
-    return p[3] * (p[0] * q[0] + p[1] * q[1] + p[2] * q[2]) ** 2  # watson
+    # quadratic (Watson, Bingham)
+    return (
+        p[0] * q[0] ** 2
+        + p[1] * q[1] ** 2
+        + p[2] * q[2] ** 2
+        + 2 * (p[3] * q[0] * q[1] + p[4] * q[0] * q[2] + p[5] * q[1] * q[2])
+    )
 
 
 def log_prior(static, numbers, theta):
