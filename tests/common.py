@@ -169,7 +169,7 @@ def make_data(model, theta, starts, D=3, every=7):
 
 
 def start_params(theta, fixed=(), priors=None):
-    """Starting values given in LocMoFit's parameter names (`theta`, `phi` for an axis, `alpha` for a cap's half-angle, `omega0`, `omega2` for the fractions), or in those of the tutorial's parameter files, which use earlier parametrizations: a cap's curvature `eta` (κ′ = tanh(`eta`)) and the signal fraction `logit_prob` (π = logistic(`logit_prob`)), as the `params` of `run_locmofit`: each quantity's `ParamToFit` with its value (an axis as `(theta, phi)`, κ′ = sin(`alpha`/2) or tanh(`eta`), the fractions softmax(`omega0`, 0, `omega2`) or, with `logit_prob`, (1 − π, π·softmax(0, `omega2`))), held (`Fixed()`) if its name is in `fixed`, and with its prior from `priors` if named there (else its default); as LocMoFit.jl's test/tutorial.jl."""
+    """Starting values given in LocMoFit's parameter names (`theta`, `phi` for an axis, `alpha` for a cap's half-angle, `omega0`, `omega2` for the fractions), as the `params` of `run_locmofit`: each quantity's `ParamToFit` with its value (an axis as `(theta, phi)`, κ′ = sin(`alpha`/2), the fractions softmax(`omega0`, 0, `omega2`)), held (`Fixed()`) if its name is in `fixed`, and with its prior from `priors` if named there (else its default); as LocMoFit.jl's test/tutorial.jl."""
     priors = priors or {}
     values = {}
     for k, v in theta.items():
@@ -177,23 +177,13 @@ def start_params(theta, fixed=(), priors=None):
             values[f"axis{k[5:]}"] = (v, theta[f"phi{k[5:]}"])
         elif k.startswith("alpha"):
             values[f"kappa{k[5:]}"] = math.sin(v / 2)
-        elif k.startswith("eta"):
-            values[f"kappa{k[3:]}"] = math.tanh(v)
-        elif not k.startswith("phi") and k not in (
-            "omega0",
-            "omega2",
-            "logit_prob",
-        ):
+        elif not k.startswith("phi") and k not in ("omega0", "omega2"):
             values[k] = v
     lw = np.array([0.0, theta["omega2"]] if "omega2" in theta else [0.0])
-    w = softmax(lw)
     if "omega0" in theta:
         values["fractions"] = tuple(softmax(np.r_[theta["omega0"], lw]))
-    elif "logit_prob" in theta:
-        signal = 1 / (1 + math.exp(-theta["logit_prob"]))
-        values["fractions"] = (1 - signal, *(signal * w))
     elif "omega2" in theta:
-        values["fractions"] = tuple(w)
+        values["fractions"] = tuple(softmax(lw))
     return {
         k: lm.ParamToFit(v, lm.Fixed() if k in fixed else priors.get(k))
         for k, v in values.items()
@@ -413,21 +403,22 @@ def tutorial(case, D):
 
 
 def moved(p):
-    """The benchmark's moved start: positions +5 nm, sizes ×1.15 (a cap's κ′ ×0.85), starting axes moved by 0.15 rad in theta and phi, blur 2 nm, the default signal fraction and shares."""
+    """The benchmark's moved start: positions +5 nm, sizes ×1.15 (a cap's κ′ ×0.85), starting axes moved by 0.15 rad in theta and phi, blur 2 nm, and the default fractions: a background fraction of 0.1 and equal shares (ω₀ = log(f₀/f₁) with f₁ = 0.9/K for K components); as LocMoFit.jl's test/tutorial.jl."""
+    n_components = 2 if "omega2" in p else 1
     out = {}
     for k, v in p.items():
         if k in ("x", "y", "z", "x1", "y1", "z1", "x2", "y2", "z2"):
             v = v + 5
         elif k in ("r", "r1", "r2", "s", "s2"):
             v = 1.15 * v
-        elif k in ("eta", "eta2"):
-            v = math.atanh(0.85 * math.tanh(v))
+        elif k in ("alpha", "alpha2"):
+            v = 2 * math.asin(0.85 * math.sin(v / 2))
         elif k in ("theta", "phi", "theta1", "phi1", "theta2", "phi2"):
             v = v + 0.15
         elif k == "sigma":
             v = 2.0
-        elif k == "logit_prob":
-            v = math.log(9)
+        elif k == "omega0":
+            v = math.log(n_components / 9)
         elif k == "omega2":
             v = 0.0
         out[k] = v

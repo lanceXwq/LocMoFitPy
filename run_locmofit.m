@@ -3,7 +3,7 @@
 % clear
 
 % Start Python
-pyenv(Version="/Users/lancexwq/Ries Lab/LocMoFitPy2/.pixi/envs/default/bin/python", ExecutionMode= "OutOfProcess");
+pyenv(Version=fullfile(pwd, ".pixi/envs/default/bin/python"), ExecutionMode= "OutOfProcess");
 
 % Load data from CSV
 data = readmatrix("./notebooks/data/simulated_data_spcap.csv");
@@ -14,9 +14,9 @@ tic
 % Import locmofitpy
 api = py.importlib.import_module("locmofitpy");
 
-init_params = py.dict(pyargs("c", 0.02));
-% freeze = py.tuple("c");
-freeze = py.tuple();
+% Starting values and priors, one ParamToFit per quantity (the docstring of run_locmofit lists them); a quantity not named starts from the data, with its default prior
+params = py.dict(pyargs("kappa", api.ParamToFit(0.4)));
+% params = py.dict(pyargs("kappa", api.ParamToFit(0.4, api.Fixed()), "axis", api.ParamToFit(py.tuple({0, 0}))));
 
 % Run the code to fit
 res = api.run_locmofit( ...
@@ -24,8 +24,7 @@ res = api.run_locmofit( ...
     locs, ...
     loc_precisions, ...
     pyargs( ...
-        "init_params", init_params, ...
-        "freeze", freeze, ...
+        "params", params, ...
         "max_iter", int64(500), ...
         "spacing", 3, ...
         "dtype", "float32", ...
@@ -34,7 +33,7 @@ res = api.run_locmofit( ...
 );
 
 % Collect the result
-losses = double(res{"losses"});
+loss = double(res{"loss"});
 positions  = double(res{"model_points"});
 parameters = res{"parameters"};
 toc

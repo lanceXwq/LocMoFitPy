@@ -12,27 +12,26 @@ function readcsv(path)
 end
 function moved(p)
     shift(k, v) = k in (:x, :y, :z, :x1, :y1, :z1, :x2, :y2, :z2) ? v + 5 :
-                  k in (:r, :r1, :r2, :s, :s2) ? 1.15v : k in (:eta, :eta2) ? atanh(0.85tanh(v)) :
+                  k in (:r, :r1, :r2, :s, :s2) ? 1.15v : k in (:alpha, :alpha2) ? 2asin(0.85sin(v / 2)) :
                   k in (:theta, :phi, :theta1, :phi1, :theta2, :phi2) ? v + 0.15 : k == :sigma ? 2.0 :
-                  k == :logit_prob ? log(9) : k == :omega2 ? 0.0 : v
+                  k == :omega0 ? log((1 + haskey(p, :omega2)) / 9) : k == :omega2 ? 0.0 : v
     return NamedTuple{keys(p)}(Tuple(shift(k, v) for (k, v) in pairs(p)))
 end
-# the starting values in the tutorial's parameter names as params (LocMoFit.jl's test/tutorial.jl, start_params): an axis as (theta, phi), κ′ = tanh(eta), the fractions (1 − π, π·softmax(0, omega2)) with the signal fraction π = logistic(logit_prob); held if named in `fixed`
+# the starting values in the tutorial's parameter names as params (LocMoFit.jl's test/tutorial.jl, start_params): an axis as (theta, phi), κ′ = sin(alpha/2), the fractions softmax(omega0, 0, omega2); held if named in `fixed`
 function start_params(θ; fixed=())
     values = Pair{Symbol,Any}[]
     for (k, v) in pairs(θ)
         name = string(k)
         if startswith(name, "theta")
             push!(values, Symbol(:axis, name[6:end]) => (v, θ[Symbol(:phi, name[6:end])]))
-        elseif startswith(name, "eta")
-            push!(values, Symbol(:kappa, name[4:end]) => tanh(v))
-        elseif !startswith(name, "phi") && !(k in (:logit_prob, :omega2))
+        elseif startswith(name, "alpha")
+            push!(values, Symbol(:kappa, name[6:end]) => sin(v / 2))
+        elseif !startswith(name, "phi") && !(k in (:omega0, :omega2))
             push!(values, k => v)
         end
     end
-    w = haskey(θ, :omega2) ? (1 / (1 + exp(θ.omega2)), 1 / (1 + exp(-θ.omega2))) : (1.0,)
-    signal = 1 / (1 + exp(-θ.logit_prob))
-    push!(values, :fractions => (1 - signal, (signal .* w)...))
+    ω = haskey(θ, :omega2) ? (θ.omega0, 0.0, θ.omega2) : (θ.omega0, 0.0)
+    push!(values, :fractions => exp.(ω) ./ sum(exp.(ω)))
     return NamedTuple(k => ParamToFit(v, k in fixed ? Fixed() : nothing) for (k, v) in values)
 end
 
