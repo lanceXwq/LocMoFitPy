@@ -12,7 +12,7 @@ Part of LocMoFitPy, outside SMAPpy's package: SMAPpy scans this folder (`locmofi
 
 **The field of view.** The background is uniform over the field of view, so its volume enters the likelihood. It is what the localizations were cut to: in a run per ROI the ROI, and on the view the ROI drawn on it and, while plugins use the slab, the 3D view's slab. Its area is the ROI's, else the slab's footprint; in 3D times a depth: *depth*, or for 0 the slab's thickness, else the ROI's size, as SMAP's LocMoFit takes its height. With neither (a cluster, or the view uncut), LocMoFitPy's default, the localizations' bounding box.
 
-**Starting values.** Whatever *start values* name; LocMoFitPy estimates the rest from the localizations (in 3D the position, the axis and the shape, in 2D the position) or, where it has no estimate, starts from the model's defaults. The model points are generated from the model's default sizes, or the sizes *start values* name, not from the estimated ones, so that every site has the same number of points and the fits compile once per size class rather than once per estimated size.
+**Starting values and priors.** Each model starts from LocMoFitPy's own starting values: estimated from the localizations (in 3D the position, the axis and the shape, in 2D the position) or, where it has no estimate, the model's defaults; every quantity has its default prior and is fitted (no values are held or tied). The model points are generated from the model's default sizes, not from the estimated ones, so that every site has the same number of points and the fits compile once per size class rather than once per estimated size.
 
 **Values.** Each component in the world frame: its position `x`, `y`, `z`, axis angles `theta`, `phi` (radians) and shape (`r`; or `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), with the component's number appended for a composite (`r1`, `r2`); then `sigma`, `signal_fraction`, the components' shares `w1`, `w2`, …, `loss`, `iterations` and `converged`.
 """
@@ -109,38 +109,6 @@ def use_compilation_cache() -> None:
         jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
 
 
-def parse_values(text: str) -> dict[str, float]:
-    """`"r=50, theta=0.3"` as `{"r": 50.0, "theta": 0.3}`."""
-    out = {}
-    for item in filter(
-        None, (s.strip() for s in text.replace(";", ",").split(","))
-    ):
-        name, sep, value = item.partition("=")
-        if not sep:
-            raise ValueError(
-                f"start values are name=value pairs, not {item!r}"
-            )
-        out[name.strip()] = float(value)
-    return out
-
-
-def parse_names(text: str) -> tuple[str, ...]:
-    return tuple(
-        filter(None, (s.strip() for s in text.replace(";", ",").split(",")))
-    )
-
-
-def parse_ties(text: str) -> dict[str, str]:
-    """`"r2=r1"` as `{"r2": "r1"}`: the target takes the source's value."""
-    out = {}
-    for item in parse_names(text):
-        target, sep, source = item.partition("=")
-        if not sep:
-            raise ValueError(f"ties are target=source pairs, not {item!r}")
-        out[target.strip()] = source.strip()
-    return out
-
-
 def site_arrays(locs) -> tuple[np.ndarray, np.ndarray]:
     """The (N, D) positions and per-axis precisions (nm) of a table: 3D when it has `z_nm` and `z_err_nm`."""
     missing = [c for c in ("x_nm", "y_nm") if c not in locs]
@@ -222,16 +190,15 @@ def field_of_view(
     return area * size
 
 
-def point_values(model: str, given: dict[str, float]) -> dict[str, float]:
-    """The sizes the model points are generated from (LocMoFitPy's `point_params`): the model's default radii and scales (`r`, `s`, `r1`, `s2`, …), or those the user gave."""
+def point_values(model: str) -> dict[str, float]:
+    """The sizes the model points are generated from (LocMoFitPy's `point_params`): the model's default radii and scales (`r`, `s`, `r1`, `s2`, …)."""
     from locmofitpy import get_model
 
-    sizes = {
+    return {
         k: v
         for k, v in get_model(model).default_parameters().items()
         if k.rstrip("0123456789") in ("r", "s")
     }
-    return {k: given.get(k, v) for k, v in sizes.items()}
 
 
 def flat_values(result: dict) -> dict[str, float]:
@@ -313,25 +280,6 @@ class LocMoFitSettings:
         choices=MODELS,
         help="the geometric model fitted to each site",
     )
-    start: str = param(
-        "",
-        label="start values",
-        kind="text",
-        help="name=value, ...: replaces the values estimated from the localizations",
-    )
-    freeze: str = param(
-        "",
-        label="freeze",
-        kind="text",
-        help="parameters kept at their start values, e.g. vx, vy",
-    )
-    tie: str = param(
-        "",
-        label="tie",
-        kind="text",
-        advanced=True,
-        help="target=source, ...: the target takes the source's value, e.g. r2=r1",
-    )
     spacing_nm: float = param(
         3.0,
         label="point spacing",
@@ -381,7 +329,7 @@ class LocMoFit(Plugin):
     Settings = LocMoFitSettings
     changes_locs = False
     per_region = True
-    version = "1"
+    version = "2"  # 2: LocMoFitPy's priors on every quantity (2026-11-17)
 
     def run(self, ctx: Context, settings: LocMoFitSettings) -> Result:
         global _asked
@@ -403,7 +351,6 @@ class LocMoFit(Plugin):
                 f"{len(positions)} localizations, too few for a fit"
             )
         region, slab = cut_to(ctx)
-        given = parse_values(settings.start)
         ctx.report(
             f"fitting {settings.model} to {len(positions)} localizations"
         )
@@ -411,10 +358,7 @@ class LocMoFit(Plugin):
             settings.model,
             positions,
             precisions,
-            init_params=given,
-            point_params=point_values(settings.model, given),
-            freeze=parse_names(settings.freeze),
-            tie=parse_ties(settings.tie) or None,
+            point_params=point_values(settings.model),
             max_iter=settings.max_iter,
             tol=settings.tol,
             spacing=settings.spacing_nm,
