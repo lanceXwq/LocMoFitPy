@@ -103,7 +103,7 @@ The port of LocMoFit.jl's `estimate_start` (`start.py`); the choices, and the mi
 
 The port of LocMoFit.jl's prior on the components' shares (its `NOTES.md`, The share prior, and its derivation, A prior on the shares): (alpha − 1) Σₖ log wₖ added to the log posterior, alpha = 5 by default. alpha is one of the arrays a compiled fit takes (`FitData.share_prior`), not part of its static layout, so a fit with another alpha, or none (passed as alpha = 1, for which the term is exactly 0), reuses the same compilation. The scratch study behind the choice was run with LocMoFitPy, the prior patched into `loss_value`; the parity references (`tests/data/julia_fits.json`, `julia_starts.json`) were written again with LocMoFit.jl's share prior on.
 
-## Priors on every parameter (the port, 2026-11-14, branch `priors`)
+## Priors on every parameter (the port, 2026-11-14 on the branch `priors`; merged into main 2026-11-17)
 
 The port of LocMoFit.jl's prototype on its branch `priors` (its `NOTES.md`, Priors on every parameter; its derivation, Priors on every parameter): `params`, a dict of `ParamToFit(value, prior)` per quantity, replaces `init_params`, `freeze`, `tie`, `signal_prior` and `share_prior`; holding and tying are the priors `Fixed()` and `Tied("r1")`; the size penalties are replaced by a log-normal prior on sizes (`LogNormal(log(50), 1)` at first, `LogNormal(log(50) + 1, 1)` since the same day: below); the other defaults are unchanged.
 
