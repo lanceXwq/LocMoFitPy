@@ -1,6 +1,6 @@
 """Priors on every quantity a fit estimates, and `ParamToFit`, which gives each quantity its starting value and its prior (as LocMoFit.jl's priors.jl; its derivations/derivation.qmd, Priors on every parameter).
 
-A prior is a density of a quantity of the structure (a position, a size, a curvature, an axis, the signal fraction, the shares), whatever coordinates the optimizer uses for it, and the loss adds its log density with no Jacobian (@eq-full-posterior). Which priors a fit has is part of what it is compiled for (`loss.FitStatic`); their numbers are data (`loss.FitData`), so that changing them does not recompile.
+A prior is a density of a quantity of the structure (a position, a size, a curvature, an axis, the fractions of the mixture), whatever coordinates the optimizer uses for it, and the loss adds its log density with no Jacobian (@eq-full-posterior). Which priors a fit has is part of what it is compiled for (`loss.FitStatic`); their numbers are data (`loss.FitData`), so that changing them does not recompile.
 """
 
 from __future__ import annotations
@@ -9,19 +9,18 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 from jax.scipy.special import logsumexp
 
 
 class Prior:
-    """A prior on one quantity of a fit, or on a group of them (an axis, the shares), given in `ParamToFit`. Its log density, up to a constant, is added to the log-likelihood. The densities: `Flat`, `Normal`, `LogNormal`, `Beta`, `Dirichlet`, `Watson`; and the point masses `Fixed` and `Tied`, which hold a quantity at its starting value or at another quantity's value."""
+    """A prior on one quantity of a fit, or on a group of them (an axis, the fractions), given in `ParamToFit`. Its log density, up to a constant, is added to the log-likelihood. The densities: `Flat`, `Normal`, `LogNormal`, `Dirichlet`, `Watson`, `Bingham`; and the point masses `Fixed` and `Tied`, which hold a quantity at its starting value or at another quantity's value."""
 
 
 @dataclass(frozen=True)
 class Flat(Prior):
-    """A constant density: no prior term. It is proper on a bounded quantity (a cap's `kappa` in [−1, 1], an axis on the sphere, the signal fraction, the shares) and improper on a position or a size, which the localizations must then determine."""
+    """A constant density: no prior term. It is proper on a bounded quantity (a cap's `kappa` in [−1, 1], an axis on the sphere, the fractions) and improper on a position or a size, which the localizations must then determine."""
 
 
 @dataclass(frozen=True)
@@ -50,31 +49,21 @@ class LogNormal(Prior):
             )
 
 
-@dataclass(frozen=True)
-class Beta(Prior):
-    """The Beta density of the signal fraction, with `a, b ≥ 1` (below 1 it grows without bound at 0 or 1). It acts like a + b − 2 extra localizations, a − 1 of them signal (@eq-posterior). The default is `Beta(5, 2)`: mode 0.8, as much as 5 localizations."""
-
-    a: float
-    b: float
-
-    def __post_init__(self):
-        if not (self.a >= 1 and self.b >= 1):
-            raise ValueError(
-                f"Beta: a and b must be at least 1, got ({self.a}, {self.b}): below 1 the density grows without bound at 0 or 1"
-            )
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Dirichlet(Prior):
-    """The symmetric Dirichlet density of a composite's shares, with `alpha ≥ 1` (below 1 it grows without bound as a share goes to 0). It acts like alpha − 1 extra signal localizations for each component and keeps every share above 0, so that a component cannot be switched off (@eq-share-prior). The default is `Dirichlet(5)`."""
+    """The Dirichlet density of the fractions of a fit's mixture, ∝ ∏ₖ fₖ^(alphaₖ − 1) (LocMoFit.jl's derivations/derivation.qmd, @eq-fraction-prior): `Dirichlet(alpha)`, the same for every fraction, or `Dirichlet(alpha0, alpha1, …, alphaK)`, with a background its fraction f₀ and each component's f₁, …, f_K (the parameters in that order); without one, the components' shares. Each must be at least 1 (below 1 the density grows without bound as a fraction goes to 0). It acts like alphaₖ − 1 extra localizations from the background and from each component (@eq-fraction-map), and keeps every fraction above 0, so that no component can be switched off. On the signal fraction π = 1 − f₀ and the shares it is a Beta density of π, with parameters Σₖ₌₁ᴷ(alphaₖ − 1) + 1 and alpha0, and the Dirichlet density of the shares with alpha1, …, alphaK (@eq-fraction-split). The default is `Dirichlet(2, 5, …, 5)` with a background (for one component the Beta(5, 2) density of π, mode 0.8; for two, as 8 extra signal localizations and 1 background one, a pull toward π = 8/9 that grows with the number of components), and `Dirichlet(5)` without."""
 
-    alpha: float
+    alpha: float | tuple
 
-    def __post_init__(self):
-        if not self.alpha >= 1:
+    def __init__(self, *alpha):
+        if not alpha:
+            raise ValueError("Dirichlet: alpha is missing")
+        if not all(a >= 1 for a in alpha):
             raise ValueError(
-                f"Dirichlet: alpha must be at least 1, got {self.alpha}: below 1 the density grows without bound as a share goes to 0"
+                f"Dirichlet: every alpha must be at least 1, got {alpha}: below 1 the density grows without bound as a fraction goes to 0"
             )
+        a = float(alpha[0]) if len(alpha) == 1 else tuple(map(float, alpha))
+        object.__setattr__(self, "alpha", a)
 
 
 @dataclass(frozen=True)
@@ -114,7 +103,7 @@ class Tied(Prior):
 
 @dataclass(frozen=True)
 class ParamToFit:
-    """What is known about one quantity of a fit before it: its starting `value` (None to estimate it from the localizations, or else start from its default) and its `prior` (a `Prior`; None for the quantity's default prior). Both are in the quantity's own terms: a position or a size in nm, a cap's `kappa` (κ′), an axis as `(theta, phi)`, the signal fraction, the shares as a tuple. `ParamToFit(prior)` with a prior alone leaves the value open. `run_locmofit` lists the quantities and their default priors."""
+    """What is known about one quantity of a fit before it: its starting `value` (None to estimate it from the localizations, or else start from its default) and its `prior` (a `Prior`; None for the quantity's default prior). Both are in the quantity's own terms: a position or a size in nm, a cap's `kappa` (κ′), an axis as `(theta, phi)`, the fractions as a tuple. `ParamToFit(prior)` with a prior alone leaves the value open. `run_locmofit` lists the quantities and their default priors."""
 
     value: Any = None
     prior: Prior | None = None
@@ -133,7 +122,7 @@ class ParamToFit:
 
 @dataclass(frozen=True)
 class Quantity:
-    """A quantity priors are stated in, computed from the optimizer's parameters `names`: a `"location"` (a position, nm), a `"size"` (the magnitude of a parameter, which the likelihood is even in), a `"curvature"` (κ′ = sign(s)·sin(α/2), from the half-angle α and s: the cap of scale −s is the cap of scale s with the opposite curvature), an `"axis"` (of `component`, from its chart coordinates vx, vy), the `"signal"` fraction (from `logit_prob`) or the `"shares"` (softmax(0, ω₂, …))."""
+    """A quantity priors are stated in, computed from the optimizer's parameters `names`: a `"location"` (a position, nm), a `"size"` (the magnitude of a parameter, which the likelihood is even in), a `"curvature"` (κ′ = sign(s)·sin(α/2), from the half-angle α and s: the cap of scale −s is the cap of scale s with the opposite curvature), an `"axis"` (of `component`, from its chart coordinates vx, vy) or the `"fractions"` of the mixture (their logarithms, log softmax(ω₀, 0, ω₂, …) with a background, whose parameter `omega0` comes first in `names`, and log softmax(0, ω₂, …) without; @eq-logfractions)."""
 
     kind: str
     names: tuple[str, ...]
@@ -141,8 +130,15 @@ class Quantity:
 
 
 SIZE_PRIOR = LogNormal(math.log(50.0) + 1, 1.0)
-SIGNAL_PRIOR = Beta(5.0, 2.0)
-SHARE_PRIOR = Dirichlet(5.0)
+# the default Dirichlet's alpha for the background's fraction and for each component's
+BACKGROUND_ALPHA = 2.0
+COMPONENT_ALPHA = 5.0
+
+
+def nfractions(q: Quantity) -> int:
+    """The number of fractions of a `"fractions"` quantity: one more than its parameters (component 1's is the reference)."""
+    return len(q.names) + 1
+
 
 # which priors each kind of quantity takes (Flat and Fixed fit every kind)
 _SUPPORTS = {
@@ -150,16 +146,14 @@ _SUPPORTS = {
     "size": (Normal, LogNormal, Tied),
     "curvature": (Normal, Tied),
     "axis": (Watson, Bingham),
-    "signal": (Beta,),
-    "shares": (Dirichlet,),
+    "fractions": (Dirichlet,),
 }
 _DESCRIBE = {
     "location": "position",
     "size": "size",
     "curvature": "curvature",
     "axis": "axis",
-    "signal": "signal fraction",
-    "shares": "set of shares",
+    "fractions": "set of fractions",
 }
 
 
@@ -182,24 +176,17 @@ def start_values(q: Quantity, value, axes) -> dict[str, float]:
             )
         theta, phi = axes[q.component - 1]
         return {theta: float(value[0]), phi: float(value[1])}
-    if q.kind == "signal":
-        if not 0 < value < 1:
-            raise ValueError(
-                f"the signal fraction must lie in (0, 1), got {value}"
-            )
-        return {"logit_prob": math.log(value) - math.log1p(-value)}
-    # the shares, as log wₖ/w₁
-    if (
-        np.ndim(value) != 1
-        or len(value) != len(q.names) + 1
-        or not all(v > 0 for v in value)
-    ):
+    # the fractions, as ωₖ = log(fₖ/f₁), with f₁ the fraction of component 1 (@eq-softmax)
+    n = nfractions(q)
+    if np.ndim(value) != 1 or len(value) != n or not all(v > 0 for v in value):
         raise ValueError(
-            f"the shares are given as {len(q.names) + 1} positive numbers, got {value!r}"
+            f"the fractions are given as {n} positive numbers, got {value!r}"
         )
+    ref = 1 if q.names[0] == "omega0" else 0
+    others = [i for i in range(n) if i != ref]
     return {
-        n: math.log(value[i + 1]) - math.log(value[0])
-        for i, n in enumerate(q.names)
+        name: math.log(value[i]) - math.log(value[ref])
+        for name, i in zip(q.names, others)
     }
 
 
@@ -256,10 +243,14 @@ def prior_terms(priors, unit_model) -> tuple[tuple, tuple]:
             family, values = "normal", (p.mean, p.sd)
         elif isinstance(p, LogNormal):
             family, values = "lognormal", (p.mu, p.sigma)
-        elif isinstance(p, Beta):
-            family, values = "beta", (p.a, p.b)
         elif isinstance(p, Dirichlet):
-            family, values = "dirichlet", (p.alpha,)
+            n = nfractions(q)
+            if isinstance(p.alpha, tuple) and len(p.alpha) != n:
+                raise ValueError(
+                    f"the Dirichlet prior has {len(p.alpha)} alphas for {n} fractions"
+                )
+            family = "dirichlet"
+            values = p.alpha if isinstance(p.alpha, tuple) else (p.alpha,) * n
         else:  # Watson or Bingham
             R0 = np.asarray(unit_model[q.component - 1][1], dtype=float)
             A = np.zeros((3, 3))
@@ -291,11 +282,13 @@ def quantity(kind: str, names: tuple[str, ...], theta: dict):
         vx, vy = theta[names[0]], theta[names[1]]
         r = 1 / jnp.sqrt(1 + vx**2 + vy**2)
         return jnp.stack([vx * r, vy * r, r])
-    if kind == "signal":
-        lam = theta[names[0]]
-        return jax.nn.log_sigmoid(lam), jax.nn.log_sigmoid(-lam)
+    # the fractions: component 1's ω₁ = 0 after the background's ω₀, if any
+    omega = [theta[n] for n in names]
+    zero = jnp.zeros_like(omega[0])
     lw = jnp.stack(
-        [jnp.zeros_like(theta[names[0]]), *(theta[n] for n in names)]
+        [omega[0], zero, *omega[1:]]
+        if names[0] == "omega0"
+        else [zero, *omega]
     )
     return lw - logsumexp(lw)
 
@@ -307,10 +300,8 @@ def log_density(family: str, p, q):
     if family == "lognormal":
         lq = jnp.log(q)
         return -lq - ((lq - p[0]) / p[1]) ** 2 / 2
-    if family == "beta":
-        return (p[0] - 1) * q[0] + (p[1] - 1) * q[1]
     if family == "dirichlet":
-        return (p[0] - 1) * jnp.sum(q)
+        return jnp.sum((jnp.asarray(p) - 1) * q)
     # quadratic (Watson, Bingham)
     return (
         p[0] * q[0] ** 2

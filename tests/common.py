@@ -123,11 +123,11 @@ CASES = (
 
 
 def fractions(model):
-    """The fractions, away from their defaults: signal fraction logistic(1.2) ≈ 0.77, and composites' shares."""
+    """The fractions' parameters, away from their defaults: the background's ω₀ = log(f₀/f₁) = −1.2, and composites' shares."""
     return (
-        dict(logit_prob=1.2, omega2=0.4)
+        dict(omega0=-1.2, omega2=0.4)
         if isinstance(model, lm.Composite)
-        else dict(logit_prob=1.2)
+        else dict(omega0=-1.2)
     )
 
 
@@ -169,7 +169,7 @@ def make_data(model, theta, starts, D=3, every=7):
 
 
 def start_params(theta, fixed=(), priors=None):
-    """Starting values given in LocMoFit's parameter names (`theta`, `phi` for an axis, `alpha` for a cap's half-angle, `logit_prob`, `omega2`), or in those of the tutorial's parameter files, which name a cap's curvature `eta` (κ′ = tanh(`eta`), an earlier parametrization), as the `params` of `run_locmofit`: each quantity's `ParamToFit` with its value (an axis as `(theta, phi)`, κ′ = sin(`alpha`/2) or tanh(`eta`), the signal fraction logistic(`logit_prob`), the shares softmax(0, `omega2`)), held (`Fixed()`) if its name is in `fixed`, and with its prior from `priors` if named there (else its default); as LocMoFit.jl's test/tutorial.jl."""
+    """Starting values given in LocMoFit's parameter names (`theta`, `phi` for an axis, `alpha` for a cap's half-angle, `omega0`, `omega2` for the fractions), or in those of the tutorial's parameter files, which use earlier parametrizations: a cap's curvature `eta` (κ′ = tanh(`eta`)) and the signal fraction `logit_prob` (π = logistic(`logit_prob`)), as the `params` of `run_locmofit`: each quantity's `ParamToFit` with its value (an axis as `(theta, phi)`, κ′ = sin(`alpha`/2) or tanh(`eta`), the fractions softmax(`omega0`, 0, `omega2`) or, with `logit_prob`, (1 − π, π·softmax(0, `omega2`))), held (`Fixed()`) if its name is in `fixed`, and with its prior from `priors` if named there (else its default); as LocMoFit.jl's test/tutorial.jl."""
     priors = priors or {}
     values = {}
     for k, v in theta.items():
@@ -179,12 +179,21 @@ def start_params(theta, fixed=(), priors=None):
             values[f"kappa{k[5:]}"] = math.sin(v / 2)
         elif k.startswith("eta"):
             values[f"kappa{k[3:]}"] = math.tanh(v)
-        elif k == "logit_prob":
-            values["signal"] = 1 / (1 + math.exp(-v))
-        elif k == "omega2":
-            values["shares"] = (1 / (1 + math.exp(v)), 1 / (1 + math.exp(-v)))
-        elif not k.startswith("phi"):
+        elif not k.startswith("phi") and k not in (
+            "omega0",
+            "omega2",
+            "logit_prob",
+        ):
             values[k] = v
+    lw = np.array([0.0, theta["omega2"]] if "omega2" in theta else [0.0])
+    w = softmax(lw)
+    if "omega0" in theta:
+        values["fractions"] = tuple(softmax(np.r_[theta["omega0"], lw]))
+    elif "logit_prob" in theta:
+        signal = 1 / (1 + math.exp(-theta["logit_prob"]))
+        values["fractions"] = (1 - signal, *(signal * w))
+    elif "omega2" in theta:
+        values["fractions"] = tuple(w)
     return {
         k: lm.ParamToFit(v, lm.Fixed() if k in fixed else priors.get(k))
         for k, v in values.items()
@@ -201,7 +210,7 @@ def case_params(model, theta, starts, background=True, **kwargs):
     f = (
         fractions(model)
         if background
-        else {k: v for k, v in fractions(model).items() if k != "logit_prob"}
+        else {k: v for k, v in fractions(model).items() if k != "omega0"}
     )
     return start_params(
         {**without_chart(theta), **f, **axes_init(model, starts)}, **kwargs
@@ -244,8 +253,8 @@ def problem(
     return p, jnp.asarray(p.parameter_map.free_parameters(full))
 
 
-def reference_loss(locs, precs, Ys, w, sigma, f=None, V=1.0, logprior=0.0):
-    """The posterior of LocMoFit.jl's derivations/derivation.qmd with plain loops: per localization, the mean of the Gaussian densities over each component's points (variances precision² + σ²), the components weighted by w, mixed with a uniform background of density 1/V at signal fraction f; minus the log posterior with the log prior `logprior`, per localization."""
+def reference_loss(locs, precs, Ys, w, sigma, f0=None, V=1.0, logprior=0.0):
+    """The posterior of LocMoFit.jl's derivations/derivation.qmd with plain loops: per localization, the mean of the Gaussian densities over each component's points (variances precision² + σ²), the components weighted by their fractions w, mixed with a uniform background of density 1/V at fraction f0 (None: no background); minus the log posterior with the log prior `logprior`, per localization."""
     N, D = locs.shape
     total = 0.0
     for n in range(N):
@@ -261,7 +270,7 @@ def reference_loss(locs, precs, Ys, w, sigma, f=None, V=1.0, logprior=0.0):
         ps = sum(
             w[k] * np.mean([density(y) for y in Y]) for k, Y in enumerate(Ys)
         )
-        total += math.log(ps if f is None else f * ps + (1 - f) / V)
+        total += math.log(ps if f0 is None else ps + f0 / V)
     return -(total + logprior) / N
 
 
@@ -278,15 +287,16 @@ def names_of(model, of):
 
 
 def default_priors(model, background):
-    """The default priors as `run_locmofit` documents them: a log-normal most probable at 50 nm (median 50e nm), with logarithmic spread 1, on every ring's radius and cap's scale, Beta(5, 2) on the signal fraction, Dirichlet(5) on a composite's shares, and flat otherwise."""
+    """The default priors as `run_locmofit` documents them: a log-normal most probable at 50 nm (median 50e nm), with logarithmic spread 1, on every ring's radius and cap's scale, Dirichlet(2, 5, …, 5) on the fractions with a background and Dirichlet(5) on a composite's without, and flat otherwise."""
     out = {
         k: lm.LogNormal(math.log(50) + 1, 1)
         for k in names_of(model, ("r", "s"))
     }
+    K = model.ncomponents()
     if background:
-        out["signal"] = lm.Beta(5, 2)
-    if isinstance(model, lm.Composite):
-        out["shares"] = lm.Dirichlet(5)
+        out["fractions"] = lm.Dirichlet(2, *(5,) * K)
+    elif K > 1:
+        out["fractions"] = lm.Dirichlet(5)
     return out
 
 
@@ -313,13 +323,11 @@ def every_prior(model):
 
 
 def reference_log_prior(model, theta, starts, priors):
-    """The log prior of LocMoFit.jl's derivations/derivation.qmd (Priors on every parameter) with plain formulas, for the priors `priors` at the parameters θ: each density at its quantity, a size's magnitude, a cap's κ′ = sign(s)·sin(α/2), an axis by the independent construction `pose` (for component 2, in component 1's frame), the signal fraction and the shares."""
+    """The log prior of LocMoFit.jl's derivations/derivation.qmd (Priors on every parameter) with plain formulas, for the priors `priors` at the parameters θ: each density at its quantity, a size's magnitude, a cap's κ′ = sign(s)·sin(α/2), an axis by the independent construction `pose` (for component 2, in component 1's frame), the fractions."""
     total = 0.0
     for name, prior in priors.items():
-        if name == "signal":
-            q = 1 / (1 + math.exp(-float(theta["logit_prob"])))
-        elif name == "shares":
-            q = shares(model, theta)
+        if name == "fractions":
+            q = all_fractions(model, theta, "omega0" in theta)
         elif name.startswith("axis"):
             k = name[4:]
             q = pose(
@@ -349,12 +357,9 @@ def reference_log_prior(model, theta, starts, priors):
                 t.kappa * (direction(t.theta, t.phi) @ q) ** 2
                 for t in prior.terms
             )
-        elif isinstance(prior, lm.Beta):
-            total += (prior.a - 1) * math.log(q) + (prior.b - 1) * math.log(
-                1 - q
-            )
         elif isinstance(prior, lm.Dirichlet):
-            total += (prior.alpha - 1) * sum(math.log(x) for x in q)
+            alpha = np.broadcast_to(prior.alpha, len(q))
+            total += sum((a - 1) * math.log(x) for a, x in zip(alpha, q))
     return total
 
 
@@ -364,18 +369,21 @@ def parts(prob, theta, D):
     return [Y[r.start : r.stop, :D] for r in prob.ranges]
 
 
-def shares(model, theta):
-    if isinstance(model, lm.Composite):
-        omega = np.array(
-            [0.0]
-            + [
-                float(theta[f"omega{k}"])
-                for k in range(2, model.ncomponents() + 1)
-            ]
-        )
-    else:
-        omega = np.array([0.0])
-    return np.exp(omega) / np.exp(omega).sum()
+def softmax(x):
+    x = np.asarray(x, dtype=float)
+    return np.exp(x) / np.exp(x).sum()
+
+
+def all_fractions(model, theta, background):
+    """The fractions softmax(ω₀, 0, ω₂, …) from the parameters: with a background, its fraction first."""
+    return softmax(
+        ([float(theta["omega0"])] if background else [])
+        + [0.0]
+        + [
+            float(theta[f"omega{k}"])
+            for k in range(2, model.ncomponents() + 1)
+        ]
+    )
 
 
 def readcsv(path):

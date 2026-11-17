@@ -17,7 +17,7 @@ function moved(p)
                   k == :logit_prob ? log(9) : k == :omega2 ? 0.0 : v
     return NamedTuple{keys(p)}(Tuple(shift(k, v) for (k, v) in pairs(p)))
 end
-# the starting values in LocMoFit's parameter names as params (LocMoFit.jl's test/tutorial.jl, start_params): an axis as (theta, phi), κ′ = tanh(eta), the signal fraction logistic(logit_prob), the shares softmax(0, omega2); held if named in `fixed`
+# the starting values in the tutorial's parameter names as params (LocMoFit.jl's test/tutorial.jl, start_params): an axis as (theta, phi), κ′ = tanh(eta), the fractions (1 − π, π·softmax(0, omega2)) with the signal fraction π = logistic(logit_prob); held if named in `fixed`
 function start_params(θ; fixed=())
     values = Pair{Symbol,Any}[]
     for (k, v) in pairs(θ)
@@ -26,14 +26,13 @@ function start_params(θ; fixed=())
             push!(values, Symbol(:axis, name[6:end]) => (v, θ[Symbol(:phi, name[6:end])]))
         elseif startswith(name, "eta")
             push!(values, Symbol(:kappa, name[4:end]) => tanh(v))
-        elseif k == :logit_prob
-            push!(values, :signal => 1 / (1 + exp(-v)))
-        elseif k == :omega2
-            push!(values, :shares => (1 / (1 + exp(v)), 1 / (1 + exp(-v))))
-        elseif !startswith(name, "phi")
+        elseif !startswith(name, "phi") && !(k in (:logit_prob, :omega2))
             push!(values, k => v)
         end
     end
+    w = haskey(θ, :omega2) ? (1 / (1 + exp(θ.omega2)), 1 / (1 + exp(-θ.omega2))) : (1.0,)
+    signal = 1 / (1 + exp(-θ.logit_prob))
+    push!(values, :fractions => (1 - signal, (signal .* w)...))
     return NamedTuple(k => ParamToFit(v, k in fixed ? Fixed() : nothing) for (k, v) in values)
 end
 

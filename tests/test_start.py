@@ -158,16 +158,17 @@ def test_fit_problem():
     assert [theta["x"], theta["y"]] == pytest.approx(C[:2])
     assert theta["z"] == 0 and theta["r"] == 50
     assert p.unit_model[0][1][:, 2] == pytest.approx([0, 0, 1])
-    # a model without an estimate of its shape starts from its defaults, but with component 1 at the localizations' weighted center: here C, about which the two rings are symmetric
+    # a model without an estimate of its shape starts from its defaults, but with component 1 at the localizations' weighted center: here C, about which the two rings are symmetric; the background's fraction starts at 0.1 and the three components' at 0.3 each, so ω₀ = log(0.1/0.3)
     three = lm.Composite(lm.Ring(), lm.Ring(), lm.Ring())
     p, u = lm.fit_problem(three, two, precs)
     theta = p.parameter_map.full_parameters(u)
     position = ("x1", "y1", "z1")
     assert [theta[k] for k in position] == pytest.approx(C)
-    defaults = {**three.default_parameters(), "logit_prob": math.log(9)}
-    assert {k: v for k, v in theta.items() if k not in position} == {
-        k: v for k, v in defaults.items() if k not in position
-    }
+    assert theta["omega0"] == pytest.approx(math.log(1 / 3))
+    defaults = three.default_parameters()
+    assert {
+        k: v for k, v in theta.items() if k not in (*position, "omega0")
+    } == {k: v for k, v in defaults.items() if k not in position}
 
 
 @pytest.mark.parametrize(

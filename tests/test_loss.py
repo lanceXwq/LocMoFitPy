@@ -22,7 +22,7 @@ from common import (
     pseudo,
     reference_log_prior,
     reference_loss,
-    shares,
+    all_fractions,
     start_params,
 )
 
@@ -60,7 +60,6 @@ def test_log_likelihood_float32_far_from_origin():
             (range(0, 20),),
             sigma,
             jnp.zeros(1, sigma.dtype),
-            0.0,
             0.0,
             False,
         )
@@ -102,14 +101,14 @@ def test_log_likelihood_float32_far_from_origin():
 
 @pytest.mark.parametrize("D", [3, 2])
 def test_log_likelihood_gradient(D):
-    # the closed-form gradient (_ll_bwd) against central differences, as LocMoFit.jl tests likelihood_pass: with respect to the points, sigma, the log weights of two components and the two log fractions of the mixture with the background, in 3D and 2D (where the points' third coordinate has no effect)
+    # the closed-form gradient (_ll_bwd) against central differences, as LocMoFit.jl tests likelihood_pass: with respect to the points, sigma, the log fractions of two components and the log of the background's term, in 3D and 2D (where the points' third coordinate has no effect)
     x, y, s = kernel_inputs()
     ranges = (range(0, 8), range(8, 20))
-    sigma, logw = 1.5, np.log([0.3, 0.7])
-    a, b = math.log(0.8), math.log(0.2) - 3 * math.log(30.0)
+    sigma, logw = 1.5, np.log([0.24, 0.56])
+    b = math.log(0.2) - 3 * math.log(30.0)
 
     @jax.jit
-    def f(y, sigma, logw, a, b):
+    def f(y, sigma, logw, b):
         return lm.log_likelihood(
             jnp.asarray(x[:, :D]),
             jnp.asarray(s[:, :D]),
@@ -117,18 +116,17 @@ def test_log_likelihood_gradient(D):
             ranges,
             jnp.asarray(sigma),
             jnp.asarray(logw),
-            a,
             b,
             True,
         )
 
-    g = jax.grad(f, argnums=(0, 1, 2, 3, 4))(
-        jnp.asarray(y), sigma, jnp.asarray(logw), a, b
+    g = jax.grad(f, argnums=(0, 1, 2, 3))(
+        jnp.asarray(y), sigma, jnp.asarray(logw), b
     )
     h = 1e-6
 
     def fd(k, shift):
-        args = [y, sigma, logw, a, b]
+        args = [y, sigma, logw, b]
         plus, minus = list(args), list(args)
         plus[k], minus[k] = args[k] + shift, args[k] - shift
         return (float(f(*plus)) - float(f(*minus))) / (2 * h)
@@ -151,18 +149,19 @@ def test_log_likelihood_gradient(D):
         assert np.all(np.asarray(g[0])[:, 2] == 0)
     assert close(g[1], fd(1, h))
     assert close(g[2][0], fd(2, e(2, 0))) and close(g[2][1], fd(2, e(2, 1)))
-    assert close(g[3], fd(3, h)) and close(g[4], fd(4, h))
+    assert close(g[3], fd(3, h))
 
 
 def prior_variants(model, background):
-    """The priors of each variant of the reference test that applies to the model: the defaults, each default replaced (the signal fraction's need a background, the shares' a composite), flat sizes, and every other quantity with a prior."""
+    """The priors of each variant of the reference test that applies to the model: the defaults, the fractions' default replaced (by a symmetric Dirichlet, by one with an alpha for each fraction, and by a flat density; the fractions need a background or a composite), flat sizes, and every other quantity with a prior."""
     out = {"default": {}}
-    if background:
-        out["signal Beta(197, 50)"] = {"signal": lm.Beta(197, 50)}
-        out["signal flat"] = {"signal": lm.Flat()}
-    if isinstance(model, lm.Composite):
-        out["shares Dirichlet(2.5)"] = {"shares": lm.Dirichlet(2.5)}
-        out["shares flat"] = {"shares": lm.Flat()}
+    n = background + model.ncomponents()
+    if background or isinstance(model, lm.Composite):
+        out["fractions Dirichlet(2.5)"] = {"fractions": lm.Dirichlet(2.5)}
+        out["fractions Dirichlet per fraction"] = {
+            "fractions": lm.Dirichlet(*(1.5 + np.arange(1, n + 1)))
+        }
+        out["fractions flat"] = {"fractions": lm.Flat()}
     out["flat sizes"] = {k: lm.Flat() for k in names_of(model, ("r", "s"))}
     out["every prior"] = every_prior(model)
     return out
@@ -179,7 +178,7 @@ VARIANTS = [
 
 @pytest.mark.parametrize("case, D, background, variant", VARIANTS)
 def test_loss_against_reference(case, D, background, variant):
-    # the posterior with its default priors, then with each default replaced (the signal fraction's, the shares', and flat sizes) and with every other quantity given a prior, as LocMoFit.jl's test; the log prior does not depend on D, so in 2D only the defaults
+    # the posterior with its default priors, then with each default replaced (the fractions', and flat sizes) and with every other quantity given a prior, as LocMoFit.jl's test; the log prior does not depend on D, so in 2D only the defaults
     _, model, theta, starts = CASES[case]
     priors = prior_variants(model, background)[variant]
     locs, precs = make_data(model, theta, starts, D=D)
@@ -188,15 +187,14 @@ def test_loss_against_reference(case, D, background, variant):
     )
     thp = p.parameter_map.full_parameters(u)
     used = {**default_priors(model, background), **priors}
+    f = all_fractions(model, thp, background)
     ref = reference_loss(
         locs,
         precs,
         parts(p, thp, D),
-        shares(model, thp),
+        f[1:] if background else f,
         float(thp["sigma"]),
-        f=1 / (1 + math.exp(-float(thp["logit_prob"])))
-        if background
-        else None,
+        f0=f[0] if background else None,
         V=FOV**D,
         logprior=reference_log_prior(model, thp, starts, used),
     )
@@ -204,7 +202,7 @@ def test_loss_against_reference(case, D, background, variant):
 
 
 @pytest.mark.parametrize("alpha", [5.0, 2.0, 1.0])
-def test_share_prior_optimum(alpha):
+def test_fraction_prior_optimum(alpha):
     # two rings 2 µm apart along their axis, n1 and n2 localizations exactly on them, no background: every localization comes from its own ring (q = 0 or 1 in LocMoFit.jl's derivations/derivation.qmd, @eq-shares), so the share that maximizes the posterior is (n2 + alpha - 1)/(n + 2(alpha - 1)) (@eq-share-map), n2/n for the flat Dirichlet(1), whose term is 0 (Dirichlet(1) rather than Flat() reuses the compiled fit); the fits also check what a fit without a background returns (as LocMoFit.jl's test)
     n1, n2, r = 30, 10, 50.0
 
@@ -234,7 +232,7 @@ def test_share_prior_optimum(alpha):
         "DoubleRing",
         locs,
         precs,
-        params={**held, "shares": lm.ParamToFit(lm.Dirichlet(alpha))},
+        params={**held, "fractions": lm.ParamToFit(lm.Dirichlet(alpha))},
         background=False,
         tol=1e-10,
     )
@@ -242,7 +240,7 @@ def test_share_prior_optimum(alpha):
         (n2 + alpha - 1) / (n1 + n2 + 2 * (alpha - 1)), rel=1e-6
     )
     assert (
-        "logit_prob" not in fit["parameters"]
+        "omega0" not in fit["parameters"]
         and fit["signal_fraction"] is None
         and math.isfinite(fit["loss"])
     )
@@ -363,7 +361,6 @@ def test_priors():
             phi2=-0.7,
         ),
         "sigma": 2.0,
-        "logit_prob": 1.2,
     }
     free = ("z2", "s2", "kappa2", "axis2")
     priors = dict(
@@ -380,7 +377,7 @@ def test_priors():
             fixed=tuple(k for k in start_params(start) if k not in free),
             priors=priors,
         ),
-        "shares": lm.ParamToFit((1.0, 1e-20), lm.Fixed()),
+        "fractions": lm.ParamToFit((0.2, 0.8, 1e-20), lm.Fixed()),
     }
     fit = lm.run_locmofit(
         "SpCapRing", locs, precs, params=params, spacing=SPACING, tol=1e-10
@@ -420,20 +417,33 @@ def test_priors():
             True,
         ),  # and so does a Bingham density
         ("Ring", {"axis": lm.ParamToFit(lm.Normal(0, 1))}, True),
-        ("Ring", {"signal": lm.ParamToFit(lm.Dirichlet(5))}, True),
+        ("Ring", {"fractions": lm.ParamToFit(lm.Normal(0, 1))}, True),
         (
             "Ring",
-            {"signal": lm.ParamToFit(0.5)},
+            {"fractions": lm.ParamToFit((1.0,))},
             False,
-        ),  # no signal fraction without a background
-        ("Ring", {"signal": lm.ParamToFit(1.0)}, True),  # outside (0, 1)
+        ),  # no fractions for one component without a background
+        (
+            "Ring",
+            {"fractions": lm.ParamToFit((0.0, 1.0))},
+            True,
+        ),  # not positive
+        (
+            "DoubleRing",
+            {"fractions": lm.ParamToFit(lm.Dirichlet(2, 5))},
+            True,
+        ),  # an alpha for each of the three fractions
         ("SphericalCap", {"kappa": lm.ParamToFit(1.0)}, True),
         (
             "Ring",
             {"axis": lm.ParamToFit(0.3)},
             True,
         ),  # an axis is (theta, phi)
-        ("DoubleRing", {"shares": lm.ParamToFit((0.5, 0.3, 0.2))}, True),
+        (
+            "DoubleRing",
+            {"fractions": lm.ParamToFit((0.5, 0.5))},
+            True,
+        ),  # three fractions with a background
         (
             "DoubleRing",
             {"r2": lm.ParamToFit(lm.Tied("z1"))},
@@ -462,8 +472,9 @@ def test_params_refused(model, params, background):
     [
         lambda: lm.Normal(0, 0),
         lambda: lm.LogNormal(0, -1),
-        lambda: lm.Beta(0.5, 2),
         lambda: lm.Dirichlet(0.5),
+        lambda: lm.Dirichlet(2, 0.5),
+        lambda: lm.Dirichlet(),
         lambda: lm.Bingham(),
     ],
 )

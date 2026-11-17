@@ -44,7 +44,7 @@ def test_run_locmofit():
     assert r["parameters"]["sigma"] == 1.0  # frozen
     assert 0 < r["signal_fraction"] < 1 and r[
         "signal_fraction"
-    ] == pytest.approx(1 / (1 + math.exp(-r["parameters"]["logit_prob"])))
+    ] == pytest.approx(1 / (1 + math.exp(r["parameters"]["omega0"])))
     assert np.allclose(r["weights"], [1.0])
     c = r["components"][0]
     assert np.allclose(

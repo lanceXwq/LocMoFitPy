@@ -22,16 +22,15 @@ def log_likelihood(
     ranges,
     sigma,
     logw,
-    a,
     b,
     background,
     loc_weight=None,
     point_valid=None,
     counts=None,
 ):
-    """Σₙ log(eᵃ pₙ + eᵇ) over the localizations (the rows of the (N, D) `locs`, with precisions `loc_prec`), or Σₙ log pₙ without a background.
+    """Σₙ log(pₙ + eᵇ) over the localizations (the rows of the (N, D) `locs`, with precisions `loc_prec`), or Σₙ log pₙ without a background.
 
-    pₙ is the structure's density at localization n: for each component k, whose model points are the rows `ranges[k]` of `points` (of which the first D columns are used), the mean of the Gaussians around its points with per-axis variances `loc_prec² + sigma²`; the components weighted by `exp(logw)`. In a fit, `a` is the log signal fraction and `b` the log of the background's density times its fraction. The squared distances are formed from differences (not expanded), so the result keeps its precision far from the origin, also in float32.
+    pₙ is the structure's density at localization n: for each component k, whose model points are the rows `ranges[k]` of `points` (of which the first D columns are used), the mean of the Gaussians around its points with per-axis variances `loc_prec² + sigma²`; the components weighted by `exp(logw)`. In a fit, `logw` are the log fractions of the components and `b` the log of the background's density times its fraction (LocMoFit.jl's derivations/derivation.qmd, @eq-mixture). The squared distances are formed from differences (not expanded), so the result keeps its precision far from the origin, also in float32.
 
     For padded arrays (as `run_locmofit` compiles them, so that sites of similar sizes share one compilation), `loc_weight` (N,) is 1 for a localization and 0 for padding, `point_valid` (M,) marks the real points, and `counts[k]` is component k's number of real points; padding then contributes nothing. Its gradient is in closed form (`_ll_bwd`; LocMoFit.jl's derivations/derivation.qmd, the gradient of the log-likelihood).
     """
@@ -48,7 +47,6 @@ def log_likelihood(
         points,
         sigma,
         jnp.asarray(logw, dtype),
-        jnp.asarray(a, dtype),
         jnp.asarray(b, dtype),
         loc_weight,
         point_valid,
@@ -74,7 +72,6 @@ def _ll_forward(
     points,
     sigma,
     logw,
-    a,
     b,
     loc_weight,
     point_valid,
@@ -93,19 +90,18 @@ def _ll_forward(
     )  # (N, K)
     t = logw[None, :] - jnp.log(counts)[None, :] + lse
     S = logsumexp(t, axis=1)
-    L = jnp.logaddexp(a + c + S, b) if background else c + S
+    L = jnp.logaddexp(c + S, b) if background else c + S
     total = jnp.sum(jnp.where(loc_weight > 0, L, 0))
     return total, (h, c, lse, t, S, L)
 
 
-@functools.partial(jax.custom_vjp, nondiff_argnums=(10, 11))
+@functools.partial(jax.custom_vjp, nondiff_argnums=(9, 10))
 def _ll(
     locs,
     loc_prec,
     points,
     sigma,
     logw,
-    a,
     b,
     loc_weight,
     point_valid,
@@ -119,7 +115,6 @@ def _ll(
         points,
         sigma,
         logw,
-        a,
         b,
         loc_weight,
         point_valid,
@@ -135,7 +130,6 @@ def _ll_fwd(
     points,
     sigma,
     logw,
-    a,
     b,
     loc_weight,
     point_valid,
@@ -149,7 +143,6 @@ def _ll_fwd(
         points,
         sigma,
         logw,
-        a,
         b,
         loc_weight,
         point_valid,
@@ -162,7 +155,6 @@ def _ll_fwd(
         loc_prec,
         points,
         sigma,
-        a,
         loc_weight,
         point_valid,
         counts,
@@ -171,13 +163,12 @@ def _ll_fwd(
 
 
 def _ll_bwd(ranges, background, saved, gbar):
-    """The gradient with respect to the points, σ, the log weights and the two log fractions, from the shares of LocMoFit.jl's derivations/derivation.qmd: rₙ (the localization is signal), q_nk (it comes from component k) and the weights of the points within each component. The exponents are recomputed rather than kept from the forward pass, and the gradient with respect to the points is two matrix products on coordinates centered at the localizations' mean (exact up to rounding of that size); the one with respect to the variances keeps the differences."""
+    """The gradient with respect to the points, σ, the components' log fractions and the background's log term, from the shares of LocMoFit.jl's derivations/derivation.qmd: rₙ (the localization is signal), q_nk (it comes from component k) and the weights of the points within each component. The exponents are recomputed rather than kept from the forward pass, and the gradient with respect to the points is two matrix products on coordinates centered at the localizations' mean (exact up to rounding of that size); the one with respect to the variances keeps the differences."""
     (
         locs,
         loc_prec,
         points,
         sigma,
-        a,
         loc_weight,
         point_valid,
         counts,
@@ -185,7 +176,7 @@ def _ll_bwd(ranges, background, saved, gbar):
     ) = saved
     D = locs.shape[1]
     wt = (loc_weight > 0).astype(locs.dtype)
-    rho = jnp.exp(a + c + S - L) if background else jnp.ones_like(S)
+    rho = jnp.exp(c + S - L) if background else jnp.ones_like(S)
     r = wt * rho  # (N,)
     g = r[:, None] * jnp.exp(
         t - S[:, None]
@@ -223,8 +214,7 @@ def _ll_bwd(ranges, background, saved, gbar):
     )  # v = s² + σ² enters c (∂c/∂v = -h) and h (∂h/∂v = -2h²)
     d_sigma = 2 * sigma * jnp.sum(d_v)
     d_logw = jnp.sum(g, axis=0)
-    d_a = jnp.sum(r) if background else jnp.zeros_like(a)
-    d_b = jnp.sum(wt * (1 - rho)) if background else jnp.zeros_like(a)
+    d_b = jnp.sum(wt * (1 - rho)) if background else jnp.zeros_like(sigma)
     zero = jnp.zeros_like
     return (
         zero(locs),
@@ -232,7 +222,6 @@ def _ll_bwd(ranges, background, saved, gbar):
         gbar * d_points,
         gbar * d_sigma,
         gbar * d_logw,
-        gbar * d_a,
         gbar * d_b,
         zero(loc_weight),
         None,
@@ -297,8 +286,14 @@ def loss_value(u, data: FitData, static: FitStatic):
     theta = parameters(u, data, static)
     model = static.model
     points = model.model_points(data.unit_model, theta)
+    # the log fractions of the mixture, log softmax(ω₀, 0, ω₂, …) (LocMoFit.jl's derivations/derivation.qmd, @eq-logfractions)
     lw = jnp.stack(model.log_weights(theta))
-    logw = lw - logsumexp(lw)
+    if static.background:
+        lse = jnp.logaddexp(theta["omega0"], logsumexp(lw))
+        b = theta["omega0"] - lse - data.log_volume
+    else:
+        lse = logsumexp(lw)
+        b = 0.0
     prior = log_prior(static.priors, data.priors, theta)
     ranges = tuple(range(s, e) for s, e in static.blocks)
     masks = (
@@ -310,32 +305,15 @@ def loss_value(u, data: FitData, static: FitStatic):
         if static.masked
         else {}
     )
-    if not static.background:
-        ll = log_likelihood(
-            data.locs,
-            data.loc_prec,
-            points,
-            ranges,
-            theta["sigma"],
-            logw,
-            0.0,
-            0.0,
-            False,
-            **masks,
-        )
-        return -(ll + prior) / data.n
-    lam = theta["logit_prob"]
-    log_pi, log_1mpi = jax.nn.log_sigmoid(lam), jax.nn.log_sigmoid(-lam)
     ll = log_likelihood(
         data.locs,
         data.loc_prec,
         points,
         ranges,
         theta["sigma"],
-        logw,
-        log_pi,
-        log_1mpi - data.log_volume,
-        True,
+        lw - lse,
+        b,
+        static.background,
         **masks,
     )
     return -(ll + prior) / data.n

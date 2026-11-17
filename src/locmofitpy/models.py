@@ -13,8 +13,9 @@ import numpy as np
 
 from .parameters import apply_init
 from .priors import (
-    SHARE_PRIOR,
-    SIGNAL_PRIOR,
+    BACKGROUND_ALPHA,
+    COMPONENT_ALPHA,
+    Dirichlet,
     SIZE_PRIOR,
     Flat,
     Prior,
@@ -25,15 +26,20 @@ from .unit_models import unit_cap, unit_ring
 
 
 def common_quantities(model, background: bool) -> dict:
-    """The quantities every fit has besides its components': the blur `sigma`, a composite's `shares`, and with a background the `signal` fraction, each with its default prior."""
+    """The quantities every fit has besides its components': the blur `sigma` and, with a background or several components, the `fractions` of the mixture (the background's parameter `omega0`, if any, then the components' `omega2`, …), each with its default prior: `Dirichlet(2, 5, …, 5)` with a background, `Dirichlet(5)` without."""
     out: dict[str, tuple[Quantity, Prior]] = {
         "sigma": (Quantity("size", ("sigma",)), Flat())
     }
-    if model.ncomponents() > 1:
-        names = tuple(f"omega{k}" for k in range(2, model.ncomponents() + 1))
-        out["shares"] = (Quantity("shares", names), SHARE_PRIOR)
+    K = model.ncomponents()
+    names = tuple(f"omega{k}" for k in range(2, K + 1))
     if background:
-        out["signal"] = (Quantity("signal", ("logit_prob",)), SIGNAL_PRIOR)
+        prior = Dirichlet(BACKGROUND_ALPHA, *(COMPONENT_ALPHA,) * K)
+        out["fractions"] = (Quantity("fractions", ("omega0", *names)), prior)
+    elif K > 1:
+        out["fractions"] = (
+            Quantity("fractions", names),
+            Dirichlet(COMPONENT_ALPHA),
+        )
     return out
 
 
@@ -217,7 +223,7 @@ class Composite:
 
     Component 1 is placed in the world by its pose; every other component is placed by its pose in component 1's frame, so that its position and axis are relative to component 1. Each component's parameters keep their names with the component's number appended (`x1`, `r1`, `x2`, `s2`, `alpha2`, …); the blur `sigma` is shared. Shape parameters are absolute (a ring's radius and a cap's scale in nm): to make two of them equal, tie them (`params={"r2": ParamToFit(Tied("r1"))}` in `run_locmofit`). `defaults` overrides the generated default starting values.
 
-    Component k explains a share wₖ of the signal localizations, with its points averaged on their own. The shares are softmax(0, `omega2`, …, `omegaK`), so `omega2`, …, `omegaK` (log wₖ/w₁) are fitted; they start at 0 (equal shares), and holding them (`Fixed()` on `shares`) fixes the shares.
+    Component k explains a share wₖ of the signal localizations, with its points averaged on their own. The shares are softmax(0, `omega2`, …, `omegaK`), so `omega2`, …, `omegaK` (log wₖ/w₁) are fitted, with the background's `omega0` among the fractions of the mixture (LocMoFit.jl's derivations/derivation.qmd, @eq-softmax); they start at 0 (equal shares), and holding the `fractions` (`Fixed()`) fixes them.
     """
 
     def __init__(

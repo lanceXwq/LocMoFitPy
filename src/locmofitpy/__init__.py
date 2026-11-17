@@ -12,7 +12,6 @@ from .models import (
 from .parameters import ParameterMap
 from .pipeline import fit_problem, run_locmofit
 from .priors import (
-    Beta,
     Dirichlet,
     Fixed,
     Flat,
@@ -44,7 +43,6 @@ __all__ = [
     "Flat",
     "Normal",
     "LogNormal",
-    "Beta",
     "Dirichlet",
     "Watson",
     "Bingham",

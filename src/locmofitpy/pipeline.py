@@ -96,10 +96,14 @@ def fit_problem(
 
     theta0 = model.default_parameters()
     if background:
-        theta0["logit_prob"] = math.log(9)  # signal fraction 0.9
+        theta0["omega0"] = 0.0
     theta0 = apply_init(
         theta0, {k: v for k, v in init.items() if k not in axis_names}
     )
+    # a background fraction not given starts at 0.1, whatever the components' shares: ω₀ = log(f₀/f₁) with f₁ = 0.9w₁ (LocMoFit.jl's derivations/derivation.qmd, @eq-softmax)
+    if background and "omega0" not in init:
+        lw = np.array([float(w) for w in model.log_weights(theta0)])
+        theta0["omega0"] = math.log(1 / 9) + float(np.logaddexp.reduce(lw))
     pmap = ParameterMap(theta0, freeze, tie)
     u0 = pmap.free_parameters(theta0)
     theta0 = pmap.full_parameters(u0)  # with the ties applied
@@ -163,18 +167,17 @@ def run_locmofit(
         - `kappa` (`SphericalCap`): the dimensionless curvature κ′ in [−1, 1], from a flat disc at 0 to a whole sphere at ±1 (a starting value inside (−1, 1)). `Flat()`. It is fitted as the cap's half-angle `alpha`, with κ′ = sin(`alpha`/2).
         - `axis`: the axis, as `(theta, phi)`, its polar angle and azimuth; for component k > 1, in component 1's frame. `Flat()`, uniform on the sphere; it takes a `Watson` or `Bingham` density. It is fitted as the coordinates `vx`, `vy` of a tangent chart centered on its starting value.
         - `sigma`: the blur, in nm, added to every precision in quadrature. `Flat()`.
-        - `signal` (with a background): the signal fraction. `Beta(5, 2)`: mode 0.8, as much as 5 localizations, so it keeps the fraction inside (0, 1) and pulls it toward 0.8 only on small sites.
-        - `shares` (a composite): the components' shares of the signal localizations, as a tuple. `Dirichlet(5)`: as much as 4 signal localizations for each component, so that no component can be switched off; it moves a share by K(alpha − 1)(1/K − w)/(n + K(alpha − 1)) for n signal localizations and K components (with two components and 100 signal localizations, a share of 0.3 becomes 0.315).
-      `Fixed()` holds a quantity at its value and `Tied("r1")` at another quantity's value throughout (LocMoFit.jl's derivations/derivation.qmd, Fixed and tied values). Which priors a fit has is part of what it is compiled for; their numbers are not, so changing them does not recompile. A starting value not given is estimated from the localizations (`start.estimate_start`; LocMoFit.jl's derivations/derivation.qmd, Starting values from the data), unless the quantity is fixed or tied: then, and wherever nothing is estimated, it starts from its default (plus a signal fraction of 0.9 with a background). The estimate covers a `Ring`, a `SphericalCap` and a composite of two of them sharing an axis (such as `DoubleRing` and `SpCapRing`): in 3D the position, the axis and the shape, and for a composite the second component's distance along the axis (`z2`) and the shares; in 2D only the position. Any other model gets only the position of component 1, at the weighted center of the localizations. The blur and the signal fraction start from their defaults, and an axis not estimated from (0, 0), along z. An axis given for component 1, or held, is used instead of the estimated one, and the shape is estimated along it.
+        - `fractions` (with a background or several components): the fractions of the localizations from the background and from each component, as a tuple `(f0, f1, …, fK)` (without a background `(f1, …, fK)`, the components' shares), positive numbers of which only the ratios count. `Dirichlet(2, 5, …, 5)` (`Dirichlet(5)` without a background): as much as 1 background localization and 4 from each component, so that the background and every component keep some of the localizations and no component can be switched off. On the signal fraction π = 1 − f0 it acts as K·4 signal localizations and 1 background one, so that for one component it is the Beta(5, 2) density of π (mode 0.8) and for two pulls π toward 8/9; it moves a component's share w of the signal by K(alpha − 1)(1/K − w)/(n + K(alpha − 1)) for n signal localizations and alpha = 5 (with two components and 100 signal localizations, a share of 0.3 becomes 0.315).
+      `Fixed()` holds a quantity at its value and `Tied("r1")` at another quantity's value throughout (LocMoFit.jl's derivations/derivation.qmd, Fixed and tied values). Which priors a fit has is part of what it is compiled for; their numbers are not, so changing them does not recompile. A starting value not given is estimated from the localizations (`start.estimate_start`; LocMoFit.jl's derivations/derivation.qmd, Starting values from the data), unless the quantity is fixed or tied: then, and wherever nothing is estimated, it starts from its default (plus a background fraction of 0.1 with a background). The estimate covers a `Ring`, a `SphericalCap` and a composite of two of them sharing an axis (such as `DoubleRing` and `SpCapRing`): in 3D the position, the axis and the shape, and for a composite the second component's distance along the axis (`z2`) and the shares; in 2D only the position. Any other model gets only the position of component 1, at the weighted center of the localizations. The blur and the background fraction start from their defaults, and an axis not estimated from (0, 0), along z. An axis given for component 1, or held, is used instead of the estimated one, and the shape is estimated along it.
     - `max_iter`, `tol`: the fit stops when no component of the loss's gradient exceeds `tol`, or after `max_iter` iterations. The default `tol`, 1e-4, leaves the parameters much closer to the optimum than their statistical error (a position within about 0.005 nm for a ring of 100 localizations, whose error is about 0.7 nm).
     - `spacing`: the distance between model points, in nm. The points are generated once, from the starting values.
     - `point_params`: values that replace the starting values only for generating the points (with the ties applied), such as `{"r": 50}`: then the number of points comes from a ring of radius 50 nm, whatever the starting radius. Only the shape parameters that set the number of points matter: a ring's `r` and a cap's `s` (`r1`, `s2`, … in a composite). Unknown names are ignored with a warning. Sites fitted with the same values have the same number of points, so starting values that differ from site to site do not add compilations (NOTES.md).
     - `dtype`: `"float64"` (default, since 2026-10-29) or `"float32"`. float64 sets `jax_enable_x64`, which is process-global and stays on for the rest of the process (a MATLAB `pyenv` session too). float32 is faster on large models (a cap fit about 1.7×) but can stop early, before the gradient reaches `tol`, with the loss up to about 1e-4 per localization above the optimum (a known issue: NOTES.md).
-    - `background`: whether some localizations are background, uniform over the field of view; their share is 1 − `signal`.
+    - `background`: whether some localizations are background, uniform over the field of view; their share is f0 of `fractions`.
     - `fov_volume`: the volume (area, in 2D) of the field of view, in nm³ (nm²); default the localizations' bounding box, a little smaller.
     - `history`: also return the loss and the parameters at the start and after every iteration.
 
-    Returns a dict of NumPy arrays and Python scalars (MATLAB-convertible): `parameters` (all of the optimizer's parameters, by name: `logit_prob` for the signal fraction, `omega2`, … for the shares, `alpha` for a cap's half-angle, κ′ = sin(`alpha`/2), which may come out negative or beyond π, where the shapes repeat (`components` reports the half-angle in [0, π]), `vx`, `vy` for an axis), `signal_fraction` (None without a background), `weights` (the components' shares), `components` (each component in the world frame: `position`, `axis`, `theta`, `phi` and its shape: a ring's `r`; a cap's `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), `loss`, `model_points` (M, 3), `iterations`, `retcode` (`"Success"`, `"MaxIters"` or `"Failure"`) and `history` (None, or `{"losses", "parameters"}` with one entry per iteration and the start).
+    Returns a dict of NumPy arrays and Python scalars (MATLAB-convertible): `parameters` (all of the optimizer's parameters, by name: `omega0`, `omega2`, … for the fractions, ωₖ = log(fₖ/f₁), `alpha` for a cap's half-angle, κ′ = sin(`alpha`/2), which may come out negative or beyond π, where the shapes repeat (`components` reports the half-angle in [0, π]), `vx`, `vy` for an axis), `signal_fraction` (1 − f0, None without a background), `weights` (the components' shares), `components` (each component in the world frame: `position`, `axis`, `theta`, `phi` and its shape: a ring's `r`; a cap's `s`, `kappa`, `curvature`, `radius`, `alpha`, `area`), `loss`, `model_points` (M, 3), `iterations`, `retcode` (`"Success"`, `"MaxIters"` or `"Failure"`) and `history` (None, or `{"losses", "parameters"}` with one entry per iteration and the start).
     """
     problem, u0 = fit_problem(
         model,
@@ -246,7 +249,8 @@ def fit_result(
     ]
     return {
         "parameters": theta,
-        "signal_fraction": 1 / (1 + math.exp(-theta["logit_prob"]))
+        "signal_fraction": weights.sum()
+        / (weights.sum() + math.exp(theta["omega0"] - lw.max()))
         if problem.background
         else None,
         "weights": weights / weights.sum(),
