@@ -349,7 +349,9 @@ def reference_log_prior(model, theta, starts, priors):
             )
         elif isinstance(prior, lm.Dirichlet):
             alpha = np.broadcast_to(prior.alpha, len(q))
-            total += sum((a - 1) * math.log(x) for a, x in zip(alpha, q))
+            total += sum(
+                (a - 1) * math.log(x) for a, x in zip(alpha, q, strict=True)
+            )
     return total
 
 

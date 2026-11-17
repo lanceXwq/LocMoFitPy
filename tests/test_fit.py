@@ -41,7 +41,7 @@ def test_run_locmofit():
     )
     r = lm.run_locmofit("Ring", locs, precs, **kw)
     assert r["history"] is None
-    assert r["parameters"]["sigma"] == 1.0  # frozen
+    assert r["parameters"]["sigma"] == 1.0  # fixed
     assert 0 < r["signal_fraction"] < 1 and r[
         "signal_fraction"
     ] == pytest.approx(1 / (1 + math.exp(r["parameters"]["omega0"])))

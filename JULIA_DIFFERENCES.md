@@ -19,4 +19,4 @@ These follow from the language and the callers (see the parity section of `../AG
 
 ## LocMoFit.jl changes not yet ported
 
-None (2026-11-13; the starting values from the data were ported that day).
+None (2026-11-17; the priors were ported as they were made, and merged into both main branches that day).

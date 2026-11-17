@@ -43,12 +43,12 @@ print(
 )
 for case, model, D in CASES:
     locs, precs, truth, _, _ = tutorial(case, D)
-    init, freeze = moved(truth), ()
+    init, fixed = moved(truth), ()
     if D == 2:
-        init["z"], freeze = truth["z"], ("z",)
+        init["z"], fixed = truth["z"], ("z",)
     for dtype in ("float64", "float32"):
         kw = dict(
-            params=start_params(init, fixed=freeze),
+            params=start_params(init, fixed=fixed),
             dtype=dtype,
             fov_volume=300.0**D,
         )
@@ -73,9 +73,9 @@ print(
 rng = np.random.default_rng(1)
 for case, model, D in CASES:
     locs, precs, truth, _, _ = tutorial(case, D)
-    init, freeze = moved(truth), ()
+    init, fixed = moved(truth), ()
     if D == 2:
-        init["z"], freeze = truth["z"], ("z",)
+        init["z"], fixed = truth["z"], ("z",)
     sizes = rng.integers(int(0.6 * len(locs)), len(locs) + 1, 20)
     t = time.perf_counter()
     for n in sizes:
@@ -84,7 +84,7 @@ for case, model, D in CASES:
             model,
             locs[idx],
             precs[idx],
-            params=start_params(init, fixed=freeze),
+            params=start_params(init, fixed=fixed),
             fov_volume=300.0**D,
         )
     total = time.perf_counter() - t

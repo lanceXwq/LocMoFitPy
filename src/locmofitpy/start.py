@@ -81,7 +81,7 @@ def position_start(model, locs, loc_precisions) -> dict[str, float]:
     if f is None:
         return {}
     return finite_values(
-        dict(zip(position_names(model, locs.shape[1]), f.center))
+        dict(zip(position_names(model, locs.shape[1]), f.center, strict=True))
     )
 
 

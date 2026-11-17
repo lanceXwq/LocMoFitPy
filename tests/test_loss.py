@@ -318,7 +318,8 @@ def test_padding(D):
     padded = jax.jit(lm.make_loss(p, pad=True))
     data, static = lm.loss.fit_data(p, pad=True)
     assert len(data.locs) > len(locs) or any(
-        e - s > r.stop - r.start for (s, e), r in zip(static.blocks, p.ranges)
+        e - s > r.stop - r.start
+        for (s, e), r in zip(static.blocks, p.ranges, strict=True)
     )
     assert float(padded(u)) == pytest.approx(float(exact(u)), rel=1e-12)
     assert np.allclose(

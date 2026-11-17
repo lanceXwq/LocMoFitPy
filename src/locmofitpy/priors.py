@@ -186,12 +186,12 @@ def start_values(q: Quantity, value, axes) -> dict[str, float]:
     others = [i for i in range(n) if i != ref]
     return {
         name: math.log(value[i]) - math.log(value[ref])
-        for name, i in zip(q.names, others)
+        for name, i in zip(q.names, others, strict=True)
     }
 
 
 def specification(model, background: bool, params, axes) -> dict:
-    """What `params` (a dict of `ParamToFit`) asks of a fit of `model`, in the optimizer's parameters: the starting values (`init`, with each starting axis under its `axes` names), the parameters held (`frozen`), the ties (`tie`, `(target, source)` pairs), and the priors as `(quantity, prior)` pairs (`priors`; flat ones left out). Raises a `ValueError` for an unknown name, a prior that does not fit its quantity, or a value outside its quantity's range."""
+    """What `params` (a dict of `ParamToFit`) asks of a fit of `model`, in the optimizer's parameters: the starting values (`init`, with each starting axis under its `axes` names), the parameters held (`fixed`), the ties (`tie`, `(target, source)` pairs), and the priors as `(quantity, prior)` pairs (`priors`; flat ones left out). Raises a `ValueError` for an unknown name, a prior that does not fit its quantity, or a value outside its quantity's range."""
     table = model.quantities(background)
     params = dict(params or {})
     unknown = tuple(k for k in params if k not in table)
@@ -200,7 +200,7 @@ def specification(model, background: bool, params, axes) -> dict:
             f"unknown quantities {unknown}; the quantities of this fit are {tuple(table)}"
         )
     init: dict[str, float] = {}
-    frozen: list[str] = []
+    fixed: list[str] = []
     tie: list[tuple[str, str]] = []
     priors: list[tuple[Quantity, Prior]] = []
     for name, (q, default) in table.items():
@@ -217,7 +217,7 @@ def specification(model, background: bool, params, axes) -> dict:
         if spec.value is not None:
             init.update(start_values(q, spec.value, axes))
         if isinstance(prior, Fixed):
-            frozen.extend(q.names)
+            fixed.extend(q.names)
         elif isinstance(prior, Tied):
             if prior.source not in table or prior.source == name:
                 raise ValueError(
@@ -231,7 +231,7 @@ def specification(model, background: bool, params, axes) -> dict:
             tie.append((q.names[0], source.names[0]))
         elif not isinstance(prior, Flat):
             priors.append((q, prior))
-    return dict(init=init, frozen=tuple(frozen), tie=tuple(tie), priors=priors)
+    return dict(init=init, fixed=tuple(fixed), tie=tuple(tie), priors=priors)
 
 
 def prior_terms(priors, unit_model) -> tuple[tuple, tuple]:
@@ -314,6 +314,6 @@ def log_density(family: str, p, q):
 def log_prior(static, numbers, theta):
     """The sum of the prior terms (`prior_terms`) at the parameters `theta`; 0 for none."""
     total = 0.0
-    for (kind, names, family), p in zip(static, numbers):
+    for (kind, names, family), p in zip(static, numbers, strict=True):
         total = total + log_density(family, p, quantity(kind, names, theta))
     return total

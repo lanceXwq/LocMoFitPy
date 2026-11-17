@@ -96,7 +96,9 @@ def test_scores():
         [math.sqrt(f.rel[i] @ f.rel[i] - (f.rel[i] @ m) ** 2) for i in G]
     )
     along = np.array([np.sum(f.var[i] * m**2) for i in G])
-    across = np.array([(np.sum(f.var[i]) - a) / 2 for i, a in zip(G, along)])
+    across = np.array(
+        [(np.sum(f.var[i]) - a) / 2 for i, a in zip(G, along, strict=True)]
+    )
     cw = f.c[G]
 
     def mean_w(x):

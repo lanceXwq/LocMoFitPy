@@ -207,7 +207,7 @@ def flat_values(result: dict) -> dict[str, float]:
     out = {}
     for k, c in enumerate(components, start=1):
         suffix = "" if len(components) == 1 else str(k)
-        for axis, value in zip("xyz", c["position"]):
+        for axis, value in zip("xyz", c["position"], strict=True):
             out[f"{axis}{suffix}"] = float(value)
         for name, value in c.items():
             if name not in ("position", "axis"):

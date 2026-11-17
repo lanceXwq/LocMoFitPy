@@ -70,12 +70,12 @@ def fit_problem(
     axis_names = {n for pair in axes for n in pair}
     # params in the optimizer's parameters: starting values, held parameters, ties, and priors
     spec = specification(model, background, params, axes)
-    init, freeze, tie = dict(spec["init"]), spec["frozen"], spec["tie"]
+    init, fixed, tie = dict(spec["init"]), spec["fixed"], spec["tie"]
     # what params leaves open, held and tied parameters excepted, starts from the data (LocMoFit.jl's derivations/derivation.qmd), along the starting axis of component 1 if it is given or held
     theta_a, phi_a = axes[0]
     chart = ("vx1", "vy1") if isinstance(model, Composite) else ("vx", "vy")
     given_axis = (
-        theta_a in init or phi_a in init or any(k in freeze for k in chart)
+        theta_a in init or phi_a in init or any(k in fixed for k in chart)
     )
     axis = (
         axis_vector(float(init.get(theta_a, 0.0)), float(init.get(phi_a, 0.0)))
@@ -85,7 +85,7 @@ def fit_problem(
     targets = {t for t, _ in tie}
 
     def isopen(k: str) -> bool:
-        return k not in init and k not in freeze and k not in targets
+        return k not in init and k not in fixed and k not in targets
 
     if any(isopen(k) for k in start_names(model, locs_np.shape[1])):
         estimate = estimate_start(model, locs_np, prec_np, axis)
@@ -104,14 +104,14 @@ def fit_problem(
     if background and "omega0" not in init:
         lw = np.array([float(w) for w in model.log_weights(theta0)])
         theta0["omega0"] = math.log(1 / 9) + float(np.logaddexp.reduce(lw))
-    pmap = ParameterMap(theta0, freeze, tie)
+    pmap = ParameterMap(theta0, fixed, tie)
     u0 = pmap.free_parameters(theta0)
     theta0 = pmap.full_parameters(u0)  # with the ties applied
     # the values the points are generated from: point_params in place of the starting values, with the ties applied
     points_from = theta0
     if point_params:
         points_from = apply_init(theta0, dict(point_params))
-        pm = ParameterMap(points_from, freeze, tie)
+        pm = ParameterMap(points_from, fixed, tie)
         points_from = pm.full_parameters(pm.free_parameters(points_from))
     unit = model.unit_model(
         points_from, starts, spacing=spacing, dtype=dtype.type
@@ -120,7 +120,9 @@ def fit_problem(
     terms, numbers = prior_terms(spec["priors"], unit)
     sizes = [len(points) for points, _ in unit]
     ends = np.cumsum(sizes)
-    ranges = tuple(range(int(e - n), int(e)) for e, n in zip(ends, sizes))
+    ranges = tuple(
+        range(int(e - n), int(e)) for e, n in zip(ends, sizes, strict=True)
+    )
     V = (
         float(np.prod(locs_np.max(axis=0) - locs_np.min(axis=0)))
         if fov_volume is None
@@ -197,7 +199,7 @@ def run_locmofit(
     return fit_result(problem, static, result, points, history)
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def compiled_fit(static: FitStatic, max_iter: int, tol: float, history: bool):
     """The jitted fit for one model structure and array layout: `(u0, data) -> (BFGSResult, model points)`. Sites whose padded sizes agree (`loss.bucket`) reuse it, so a dataset compiles once per model and size class, not once per site."""
 
@@ -245,7 +247,7 @@ def fit_result(
     points = np.asarray(points)
     real = [
         points[s : s + (len(unit[0]))]
-        for (s, _), unit in zip(static.blocks, problem.unit_model)
+        for (s, _), unit in zip(static.blocks, problem.unit_model, strict=True)
     ]
     return {
         "parameters": theta,

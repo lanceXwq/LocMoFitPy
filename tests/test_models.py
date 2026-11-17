@@ -198,7 +198,7 @@ def test_model_names():
         lm.get_model("NuclearPoreComplex")
 
 
-def test_freezing():
+def test_fixing():
     _, model, theta, starts = CASES[0]
     locs, precs = make_data(model, theta, starts)
     m = lm.ParameterMap(theta, ("z", "sigma"))
@@ -232,7 +232,7 @@ def test_ties():
     }  # the target takes the source's value
     u[m.free.index("r1")] = 47.0
     assert m.full_parameters(u)["r2"] == 47.0
-    # tied to a frozen parameter: frozen at its value; ties chain
+    # tied to a fixed parameter: fixed at its value; ties chain
     mf = lm.ParameterMap(theta, ("r1",), (("r2", "r1"),))
     assert mf.full_parameters(mf.free_parameters(theta))["r2"] == theta["r1"]
     mc = lm.ParameterMap(theta, (), (("r2", "r1"), ("z2", "r2")))
