@@ -16,12 +16,15 @@ Run from the repo root; the tests read CSVs by relative path.
 
 ```sh
 pixi run -e dev python -m pytest tests -k "not cuda12"   # CPU tests, about 45 s
+pixi run -e dev-oldest python -m pytest tests -k "not cuda12"   # the same on the oldest supported Python
 pixi run -e dev ruff check src tests
 pixi run -e dev mypy src
 pixi run -e cuda12dev python -m pytest tests/test_fit_cuda12.py   # Linux + CUDA 12 only (skipped without a GPU)
 pixi run -e dev python benchmarks/speed/speed.py                 # speed of the loss, its gradient and the fits
 pixi run -e dev python benchmarks/speed/session.py               # a fresh session: import, first fits, memory
 ```
+
+CI (`.github/workflows/CI.yml`) runs the CPU tests in `dev` (the latest stable Python) and `dev-oldest` (the oldest one SPEC 0 supports, pinned in `pyproject.toml`) on Linux, Windows and macOS. `pixi.lock` is not committed, so CI always resolves the newest allowed versions.
 
 Use `python -m pytest`, not the `pytest` entry point. Console-script shebangs in `.pixi/envs` break whenever the folder is moved.
 

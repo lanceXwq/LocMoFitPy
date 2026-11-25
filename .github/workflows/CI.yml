@@ -1,0 +1,38 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+jobs:
+  test:
+    name: ${{ matrix.environment }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # dev: the latest stable Python; dev-oldest: the oldest one SPEC 0 supports (pyproject.toml)
+        environment:
+          - dev-oldest
+          - dev
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          environments: ${{ matrix.environment }}
+          cache: false # pixi.lock is not committed, so every run resolves the newest allowed versions
+      - run: pixi run -e ${{ matrix.environment }} python -m pytest tests -k "not cuda12"
