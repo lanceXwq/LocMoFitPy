@@ -174,7 +174,7 @@ class Ring(SimpleModel):
 class SphericalCap(SimpleModel):
     """A spherical cap of constant area 4πs², with its apex at its position `(x, y, z)` and its outward normal along its axis.
 
-    Its shape is fitted as `alpha`, the half-angle from the axis to the rim seen from the sphere's center, which gives the dimensionless curvature κ′ = sin(`alpha`/2) = curvature × `s` (LocMoFit.jl's derivations/derivation.qmd, @eq-cap-alpha): 0 is a flat disc of radius 2s, ±π/2 a half-sphere, ±π the whole sphere of radius s, and a negative `alpha` bends the other way. The sphere's radius is s/κ′.
+    Its shape is fitted as `alpha`, the half-angle from the axis to the rim seen from the sphere's center, which gives the dimensionless curvature κ′ = sin(`alpha`/2) = curvature × `s` (LocMoFit.jl's derivations/derivations.qmd, @eq-cap-alpha): 0 is a flat disc of radius 2s, ±π/2 a half-sphere, ±π the whole sphere of radius s, and a negative `alpha` bends the other way. The sphere's radius is s/κ′.
     """
 
     def shape_parameters(self):
@@ -223,7 +223,7 @@ class Composite:
 
     Component 1 is placed in the world by its pose; every other component is placed by its pose in component 1's frame, so that its position and axis are relative to component 1. Each component's parameters keep their names with the component's number appended (`x1`, `r1`, `x2`, `s2`, `alpha2`, …); the blur `sigma` is shared. Shape parameters are absolute (a ring's radius and a cap's scale in nm): to make two of them equal, tie them (`params={"r2": ParamToFit(Tied("r1"))}` in `run_locmofit`). `defaults` overrides the generated default starting values.
 
-    Component k explains a share wₖ of the signal localizations, with its points averaged on their own. The shares are softmax(0, `omega2`, …, `omegaK`), so `omega2`, …, `omegaK` (log wₖ/w₁) are fitted, with the background's `omega0` among the fractions of the mixture (LocMoFit.jl's derivations/derivation.qmd, @eq-softmax); they start at 0 (equal shares), and holding the `fractions` (`Fixed()`) fixes them.
+    Component k explains a share wₖ of the signal localizations, with its points averaged on their own. The shares are softmax(0, `omega2`, …, `omegaK`), so `omega2`, …, `omegaK` (log wₖ/w₁) are fitted, with the background's `omega0` among the fractions of the mixture (LocMoFit.jl's derivations/derivations.qmd, @eq-softmax); they start at 0 (equal shares), and holding the `fractions` (`Fixed()`) fixes them.
     """
 
     def __init__(

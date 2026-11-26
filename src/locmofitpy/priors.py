@@ -1,4 +1,4 @@
-"""Priors on every quantity a fit estimates, and `ParamToFit`, which gives each quantity its starting value and its prior (as LocMoFit.jl's priors.jl; its derivations/derivation.qmd, Priors on every parameter).
+"""Priors on every quantity a fit estimates, and `ParamToFit`, which gives each quantity its starting value and its prior (as LocMoFit.jl's priors.jl; its derivations/derivations.qmd, Priors on every parameter).
 
 A prior is a density of a quantity of the structure (a position, a size, a curvature, an axis, the fractions of the mixture), whatever coordinates the optimizer uses for it, and the loss adds its log density with no Jacobian (@eq-full-posterior). Which priors a fit has is part of what it is compiled for (`loss.FitStatic`); their numbers are data (`loss.FitData`), so that changing them does not recompile.
 """
@@ -51,7 +51,7 @@ class LogNormal(Prior):
 
 @dataclass(frozen=True, init=False)
 class Dirichlet(Prior):
-    """The Dirichlet density of the fractions of a fit's mixture, ∝ ∏ₖ fₖ^(alphaₖ − 1) (LocMoFit.jl's derivations/derivation.qmd, @eq-fraction-prior): `Dirichlet(alpha)`, the same for every fraction, or `Dirichlet(alpha0, alpha1, …, alphaK)`, with a background its fraction f₀ and each component's f₁, …, f_K (the parameters in that order); without one, the components' shares. Each must be at least 1 (below 1 the density grows without bound as a fraction goes to 0). It acts like alphaₖ − 1 extra localizations from the background and from each component (@eq-fraction-map), and keeps every fraction above 0, so that no component can be switched off. On the signal fraction π = 1 − f₀ and the shares it is a Beta density of π, with parameters Σₖ₌₁ᴷ(alphaₖ − 1) + 1 and alpha0, and the Dirichlet density of the shares with alpha1, …, alphaK (@eq-fraction-split). The default is `Dirichlet(2, 5, …, 5)` with a background (for one component the Beta(5, 2) density of π, mode 0.8; for two, as 8 extra signal localizations and 1 background one, a pull toward π = 8/9 that grows with the number of components), and `Dirichlet(5)` without."""
+    """The Dirichlet density of the fractions of a fit's mixture, ∝ ∏ₖ fₖ^(alphaₖ − 1) (LocMoFit.jl's derivations/derivations.qmd, @eq-fraction-prior): `Dirichlet(alpha)`, the same for every fraction, or `Dirichlet(alpha0, alpha1, …, alphaK)`, with a background its fraction f₀ and each component's f₁, …, f_K (the parameters in that order); without one, the components' shares. Each must be at least 1 (below 1 the density grows without bound as a fraction goes to 0). It acts like alphaₖ − 1 extra localizations from the background and from each component (@eq-fraction-map), and keeps every fraction above 0, so that no component can be switched off. On the signal fraction π = 1 − f₀ and the shares it is a Beta density of π, with parameters Σₖ₌₁ᴷ(alphaₖ − 1) + 1 and alpha0, and the Dirichlet density of the shares with alpha1, …, alphaK (@eq-fraction-split). The default is `Dirichlet(2, 5, …, 5)` with a background (for one component the Beta(5, 2) density of π, mode 0.8; for two, as 8 extra signal localizations and 1 background one, a pull toward π = 8/9 that grows with the number of components), and `Dirichlet(5)` without."""
 
     alpha: float | tuple
 
@@ -77,7 +77,7 @@ class Watson(Prior):
 
 @dataclass(frozen=True, init=False)
 class Bingham(Prior):
-    """The Bingham density of an axis on the sphere, ∝ exp(Σⱼ kappaⱼ (μⱼ·n)²): the product of the Watson densities `terms`, whose exponents it adds (LocMoFit.jl's derivations/derivation.qmd, @eq-bingham). With perpendicular μ's it holds the axis to a different spread in each direction: `Bingham(Watson(0, 0, -1000), Watson(math.pi / 2, -math.pi / 2, 2.6))` keeps an axis near the xy plane (its tilt out of it with SD ≈ 1/√(2·1000) rad ≈ 1.3°) and near ±y within it (its turn with SD ≈ 1/√(2·2.6) rad ≈ 25°). It gives n and −n the same density and is proper for every kappa. For component k > 1 of a composite, the μ's are in component 1's frame, as the axis is."""
+    """The Bingham density of an axis on the sphere, ∝ exp(Σⱼ kappaⱼ (μⱼ·n)²): the product of the Watson densities `terms`, whose exponents it adds (LocMoFit.jl's derivations/derivations.qmd, @eq-bingham). With perpendicular μ's it holds the axis to a different spread in each direction: `Bingham(Watson(0, 0, -1000), Watson(math.pi / 2, -math.pi / 2, 2.6))` keeps an axis near the xy plane (its tilt out of it with SD ≈ 1/√(2·1000) rad ≈ 1.3°) and near ±y within it (its turn with SD ≈ 1/√(2·2.6) rad ≈ 25°). It gives n and −n the same density and is proper for every kappa. For component k > 1 of a composite, the μ's are in component 1's frame, as the axis is."""
 
     terms: tuple
 

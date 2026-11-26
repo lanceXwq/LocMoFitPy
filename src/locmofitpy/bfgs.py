@@ -30,7 +30,7 @@ class BFGSResult(NamedTuple):
 
 
 def _linesearch(value_and_grad, x, s, f0, dphi0):
-    """LineSearches.jl's BackTracking (order 3) from a step of 1. Returns the step, whether the search succeeded, and the value and gradient there. Every trial point gets its gradient along with its value: the search nearly always accepts its first point, which then needs no second evaluation (NOTES.md)."""
+    """LineSearches.jl's BackTracking (order 3) from a step of 1. Returns the step, whether the search succeeded, and the value and gradient there. Every trial point gets its gradient along with its value: the search nearly always accepts its first point, which then needs no second evaluation (DESIGN.md)."""
     dtype = x.dtype
     phi = lambda a: value_and_grad(x + a * s)  # noqa: E731
     ok = jnp.isfinite(f0) & jnp.isfinite(dphi0) & (dphi0 <= 0)

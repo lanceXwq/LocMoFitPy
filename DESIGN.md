@@ -1,8 +1,8 @@
-# Implementation notes
+# Design notes
 
-Why LocMoFitPy is implemented the way it is, with the measurements behind each choice. Its features and math are LocMoFit.jl's (`../LocMoFit.jl/NOTES.md`, `../LocMoFit.jl/derivations/derivation.qmd`); how to use and change the code is in `AGENTS.md`.
+Why LocMoFitPy is implemented the way it is, with the measurements behind each choice. Its features and math are LocMoFit.jl's (`../LocMoFit.jl/DESIGN.md`, `../LocMoFit.jl/derivations/derivations.qmd`); how to use and change the code is in `AGENTS.md`.
 
-## The port to LocMoFit.jl's design (2026-10-28)
+## The port to LocMoFit.jl's design (2026-10-28; last reviewed 2026-10-29)
 
 LocMoFitPy was rebuilt on LocMoFit.jl's design: models that only describe a shape, a flat parameter vector with `ParameterMap` for freezing and ties, composites with component weights, the likelihood with background and prior, the tangent chart and the constant-area cap. Equinox (models as pytrees, freezing by leaf name) and optax (L-BFGS) were no longer used and were dropped; ties in particular do not fit Equinox's partition by name.
 
@@ -16,11 +16,11 @@ LocMoFitPy was rebuilt on LocMoFit.jl's design: models that only describe a shap
 
 So optimistix would add Equinox and optimistix as dependencies; its Float64 advantage comes from fewer evaluations, which our loop can get too, and it is less reliable in Float32.
 
-## The tolerance
+## The tolerance (last reviewed 2026-10-29)
 
 `tol = 1e-4` on the largest gradient component (of the loss per localization) leaves the parameters close to the optimum compared with their statistical error, but not exactly at it: on the cap with a ring, optimistix's tighter fit moved a parameter by 0.53 (float64) and lowered the loss by 2.4e-5 per localization, 0.008 in log-likelihood over the site. The cap's position scatters by 2–11 nm over fits (LocMoFit.jl's accuracy benchmark), so this is far inside it.
 
-## Speed (task 2, 2026-10-29)
+## Speed (task 2, 2026-10-29; last reviewed 2026-11-01)
 
 Measured with `benchmarks/speed/speed.py` (`plain_jax_2026-10-28.txt` before, `compiled_2026-10-29.txt` after), Apple M1 Pro, CPU.
 
@@ -32,7 +32,7 @@ Measured with `benchmarks/speed/speed.py` (`plain_jax_2026-10-28.txt` before, `c
 
 **Result.** A cap fit as `run_locmofit` runs it, compiled and on padded data, takes 0.32 s (float64) and 0.15 s (float32), against LocMoFit.jl's 0.29 and 0.18 s; the cap with ring 0.20 and 0.11 s (LocMoFit.jl 0.12 and 0.07 s); a ring 6.6 ms (LocMoFit.jl 2.8 ms), where the loop's fixed cost per iteration dominates (`compiled_padded_2026-11-01.txt`). Padding costs about 10% here: `compiled_2026-10-29.txt` timed the same loop on unpadded data (the cap 0.29 s in float64).
 
-## How many compilations a dataset costs (2026-11-06)
+## How many compilations a dataset costs (2026-11-06; last reviewed 2026-11-12)
 
 Fitting many sites, as SMAPpy's per-region steps do, compiles once per setup and size class, never once per site. Measured with JAX 0.11.2 on an Apple M1 Pro, CPU, 3D, float64, through `run_locmofit` and through the SMAPpy plugin on 400 ring sites.
 
@@ -70,7 +70,7 @@ That gives 8 classes per doubling of N, so sites with n to 2n localizations need
 
 **Kept only in the process.** The compiled fits live in the Python process, so every new process (a SMAPpy session, a MATLAB `pyenv` session) compiles again. For real data whose sites span 50 to 500 localizations that is up to about 28 compilations, 30–40 s per session and setup. The SMAPpy plugin keeps them on disk across sessions (the section after next).
 
-## One point count for sites with different starts (`point_params`, 2026-11-12)
+## One point count for sites with different starts (`point_params`, 2026-11-12; last reviewed 2026-11-12)
 
 **The problem.** The number of model points comes from the starting values (a ring's ceil(2πr / spacing)) and is a shape of the compiled fit. Starting values estimated from each site's localizations, which an automatic start for the SMAPpy plugin would use, give each site its own point count, so the size classes of the points multiply those of N.
 
@@ -89,9 +89,9 @@ That gives 8 classes per doubling of N, so sites with n to 2n localizations need
 
 The fits that reached the optimum gave the same values with a point count per site and with one for all sites (position error median 1.86 nm and r error rms 0.84 nm for the rings, s error rms 1.13 nm for the caps), although one count for all puts the points of an 80 nm ring 4.8 nm apart and those of a 30 nm ring 1.8 nm apart.
 
-## Starting values from the data (the port, 2026-11-13)
+## Starting values from the data (the port, 2026-11-13; last reviewed 2026-11-13)
 
-The port of LocMoFit.jl's `estimate_start` (`start.py`); the choices, and the misses of the optimum it avoids, are in LocMoFit.jl's `NOTES.md` and its derivation. The direction search here scores each set of candidate axes at once, as (N, K) arrays, where LocMoFit.jl loops over the candidates; a Python loop was not tried.
+The port of LocMoFit.jl's `estimate_start` (`start.py`); the choices, and the misses of the optimum it avoids, are in LocMoFit.jl's `DESIGN.md` and its derivation. The direction search here scores each set of candidate axes at once, as (N, K) arrays, where LocMoFit.jl loops over the candidates; a Python loop was not tried.
 
 **Parity.** On the 500 sites of LocMoFit.jl's `benchmarks/start/` (generated there with DynMoSim), in 3D and in 2D, every estimate has the same names as LocMoFit.jl's and the same values to 2·10⁻¹⁴ relative, so the search picks the same candidate axis on every site (scratch comparison, 2026-11-13). The tests compare the tutorial sites (`tests/data/julia_starts.json`).
 
@@ -99,13 +99,13 @@ The port of LocMoFit.jl's `estimate_start` (`start.py`); the choices, and the mi
 
 **Point counts.** A start estimated per site gives every site its own point count unless `point_params` is set, and so many more compilations (the section on `point_params`).
 
-## The share prior (the port, 2026-11-14)
+## The share prior (the port, 2026-11-14; last reviewed 2026-11-14)
 
-The port of LocMoFit.jl's prior on the components' shares (its `NOTES.md`, The share prior, and its derivation, A prior on the shares): (alpha − 1) Σₖ log wₖ added to the log posterior, alpha = 5 by default. alpha is one of the arrays a compiled fit takes (`FitData.share_prior`), not part of its static layout, so a fit with another alpha, or none (passed as alpha = 1, for which the term is exactly 0), reuses the same compilation. The scratch study behind the choice was run with LocMoFitPy, the prior patched into `loss_value`; the parity references (`tests/data/julia_fits.json`, `julia_starts.json`) were written again with LocMoFit.jl's share prior on.
+The port of LocMoFit.jl's prior on the components' shares (its `DESIGN.md`, The share prior, and its derivation, A prior on the shares): (alpha − 1) Σₖ log wₖ added to the log posterior, alpha = 5 by default. alpha is one of the arrays a compiled fit takes (`FitData.share_prior`), not part of its static layout, so a fit with another alpha, or none (passed as alpha = 1, for which the term is exactly 0), reuses the same compilation. The scratch study behind the choice was run with LocMoFitPy, the prior patched into `loss_value`; the parity references (`tests/data/julia_fits.json`, `julia_starts.json`) were written again with LocMoFit.jl's share prior on.
 
-## Priors on every parameter (the port, 2026-11-14 on the branch `priors`; merged into main 2026-11-17)
+## Priors on every parameter (the port, 2026-11-14 on the branch `priors`; merged into main 2026-11-17; last reviewed 2026-11-17)
 
-The port of LocMoFit.jl's prototype on its branch `priors` (its `NOTES.md`, Priors on every parameter; its derivation, Priors on every parameter): `params`, a dict of `ParamToFit(value, prior)` per quantity, replaces `init_params`, `freeze`, `tie`, `signal_prior` and `share_prior`; holding and tying are the priors `Fixed()` and `Tied("r1")`; the size penalties are replaced by a log-normal prior on sizes (`LogNormal(log(50), 1)` at first, `LogNormal(log(50) + 1, 1)` since the same day: below); the other defaults are unchanged.
+The port of LocMoFit.jl's prototype on its branch `priors` (its `DESIGN.md`, Priors on every parameter; its derivation, Priors on every parameter): `params`, a dict of `ParamToFit(value, prior)` per quantity, replaces `init_params`, `freeze`, `tie`, `signal_prior` and `share_prior`; holding and tying are the priors `Fixed()` and `Tied("r1")`; the size penalties are replaced by a log-normal prior on sizes (`LogNormal(log(50), 1)` at first, `LogNormal(log(50) + 1, 1)` since the same day: below); the other defaults are unchanged.
 
 **Compilations.** Which priors a fit has, each term's `(kind, names, family)`, is part of `FitStatic`, so a fit is compiled for its set of priors; their numbers are arrays in `FitData`, so other numbers reuse the compilation. A dataset fitted with the default priors compiles as before (the same size classes in `benchmarks/speed/speed.py`'s 20 sites per model), while a new family or a prior on another quantity compiles again, like a new model. So "no prior" on the shares is best written `Dirichlet(1)`, whose term is exactly 0, rather than `Flat()`, where it matters (the share-prior test does so).
 
@@ -113,17 +113,17 @@ The port of LocMoFit.jl's prototype on its branch `priors` (its `NOTES.md`, Prio
 
 **Parity.** `tests/data/julia_fits.jl` passes `params` and was run against LocMoFit.jl's branch `priors`: every tutorial fit moved a little (its loss now has the log-normal terms) and still equals LocMoFit.jl's, with the same iterations; `julia_starts.json` did not change.
 
-**The cap's half-angle and the size prior's mode (2026-11-14, as LocMoFit.jl's branch `priors`, its NOTES.md).** The cap is fitted by its half-angle `alpha`, κ′ = sin(`alpha`/2), instead of `eta`, κ′ = tanh(`eta`), which put the whole sphere at `eta` → ∞, where fits got stuck. The default size prior is `LogNormal(log(50) + 1, 1)`, most probable at 50 nm instead of 18 nm. `julia_fits.json` and `julia_starts.json` were regenerated from LocMoFit.jl's branch (the tutorial sizes moved by at most 0.044 nm; the cap's `eta` became `alpha`), and every tutorial fit still equals LocMoFit.jl's. Speed (`benchmarks/speed/speed.py`, twice): the compiled fits took the same time within run-to-run noise; some float32 fits took another path (the cap 51 → 49 iterations, the cap with a ring 84 → 94). The tutorial's parameter files (`notebooks/data/`) still name a cap's curvature `eta` (κ′ = tanh eta), which `tests/common.py` reads alongside `alpha`.
+**The cap's half-angle and the size prior's mode (2026-11-14, as LocMoFit.jl's branch `priors`, its DESIGN.md).** The cap is fitted by its half-angle `alpha`, κ′ = sin(`alpha`/2), instead of `eta`, κ′ = tanh(`eta`), which put the whole sphere at `eta` → ∞, where fits got stuck. The default size prior is `LogNormal(log(50) + 1, 1)`, most probable at 50 nm instead of 18 nm. `julia_fits.json` and `julia_starts.json` were regenerated from LocMoFit.jl's branch (the tutorial sizes moved by at most 0.044 nm; the cap's `eta` became `alpha`), and every tutorial fit still equals LocMoFit.jl's. Speed (`benchmarks/speed/speed.py`, twice): the compiled fits took the same time within run-to-run noise; some float32 fits took another path (the cap 51 → 49 iterations, the cap with a ring 84 → 94). The tutorial's parameter files (`notebooks/data/`) still name a cap's curvature `eta` (κ′ = tanh eta), which `tests/common.py` reads alongside `alpha`.
 
-**A Bingham prior on axes (2026-11-16, as LocMoFit.jl's branch `priors`, its NOTES.md).** `Bingham(*terms)` adds the exponents of several Watson densities, so an axis can be held almost exactly in the image plane while its turn stays in a soft range (`Bingham(Watson(0, 0, -1000), Watson(math.pi / 2, -math.pi / 2, 2.6))`: tilt SD about 1.3°, turn about 25°). Watson and Bingham both compile to one quadratic form in the chart's coordinates (family `"quadratic"`, six numbers as data), so changing a κ does not recompile. Tested as LocMoFit.jl tests it; the tutorial fits (`julia_fits.json`) use no axis priors and did not change.
+**A Bingham prior on axes (2026-11-16, as LocMoFit.jl's branch `priors`, its DESIGN.md).** `Bingham(*terms)` adds the exponents of several Watson densities, so an axis can be held almost exactly in the image plane while its turn stays in a soft range (`Bingham(Watson(0, 0, -1000), Watson(math.pi / 2, -math.pi / 2, 2.6))`: tilt SD about 1.3°, turn about 25°). Watson and Bingham both compile to one quadratic form in the chart's coordinates (family `"quadratic"`, six numbers as data), so changing a κ does not recompile. Tested as LocMoFit.jl tests it; the tutorial fits (`julia_fits.json`) use no axis priors and did not change.
 
-**The background as fraction 0 (2026-11-17, as LocMoFit.jl's branch `priors`, its NOTES.md).** The signal fraction and the shares are one softmax over the background and the components, `(f0, f1, …, fK) = softmax(omega0, 0, omega2, …)`, with one quantity `fractions` and one prior, `Dirichlet(2, 5, …, 5)` with a background and `Dirichlet(5)` without; `Beta`, `logit_prob`, `signal` and `shares` are gone, and the kernel lost its signal argument `a` (`log_likelihood(locs, loc_prec, points, ranges, sigma, logw, b, background)`). A Dirichlet with one alpha per fraction is passed to the fit as its alphas, so a symmetric one and the default share a compilation. `julia_fits.json` was regenerated: the simple models' fits are unchanged (ω₀ = −`logit_prob`, the same iterations and loss), and the composites' moved by the stronger pull on π (the double ring's π 0.872 → 0.875, the cap with a ring's 0.859 → 0.861; every position within 0.02 nm); every tutorial fit still equals LocMoFit.jl's. `tests/common.py` and `julia_fits.jl` read the tutorial's `logit_prob` as the earlier parametrization. Speed (`benchmarks/speed/speed.py`, twice each against the previous commit, alternating): the compiled fits and the 20-site runs took the same time within run-to-run noise, with the same compilation classes; some float32 fits took another path (the ring 29 → 43 iterations, the cap with a ring 94 → 85).
+**The background as fraction 0 (2026-11-17, as LocMoFit.jl's branch `priors`, its DESIGN.md).** The signal fraction and the shares are one softmax over the background and the components, `(f0, f1, …, fK) = softmax(omega0, 0, omega2, …)`, with one quantity `fractions` and one prior, `Dirichlet(2, 5, …, 5)` with a background and `Dirichlet(5)` without; `Beta`, `logit_prob`, `signal` and `shares` are gone, and the kernel lost its signal argument `a` (`log_likelihood(locs, loc_prec, points, ranges, sigma, logw, b, background)`). A Dirichlet with one alpha per fraction is passed to the fit as its alphas, so a symmetric one and the default share a compilation. `julia_fits.json` was regenerated: the simple models' fits are unchanged (ω₀ = −`logit_prob`, the same iterations and loss), and the composites' moved by the stronger pull on π (the double ring's π 0.872 → 0.875, the cap with a ring's 0.859 → 0.861; every position within 0.02 nm); every tutorial fit still equals LocMoFit.jl's. `tests/common.py` and `julia_fits.jl` read the tutorial's `logit_prob` as the earlier parametrization. Speed (`benchmarks/speed/speed.py`, twice each against the previous commit, alternating): the compiled fits and the 20-site runs took the same time within run-to-run noise, with the same compilation classes; some float32 fits took another path (the ring 29 → 43 iterations, the cap with a ring 94 → 85).
 
-**Callers and tutorial parameters (2026-11-17, as LocMoFit.jl's branch `priors`, its NOTES.md).** `run_locmofit.m` passes `params` (and finds the env in this folder). The tutorial's parameter files in `notebooks/data/` (copies of LocMoFit.jl's) give the truth as `alpha` and `omega0` instead of `eta` and `logit_prob`, so `tests/common.py` and `tests/data/julia_fits.jl` read only the current names; `julia_fits.json` was regenerated and moved by rounding only (at most 7e-12).
+**Callers and tutorial parameters (2026-11-17, as LocMoFit.jl's branch `priors`, its DESIGN.md).** `run_locmofit.m` passes `params` (and finds the env in this folder). The tutorial's parameter files in `notebooks/data/` (copies of LocMoFit.jl's) give the truth as `alpha` and `omega0` instead of `eta` and `logit_prob`, so `tests/common.py` and `tests/data/julia_fits.jl` read only the current names; `julia_fits.json` was regenerated and moved by rounding only (at most 7e-12).
 
 **The SMAPpy plugin (2026-11-17).** Ported by removing its *start values*, *freeze* and *tie* fields (the owner's choice for now): each model starts from `run_locmofit`'s own starting values, with every quantity free under its default prior; the model points still come from the default sizes (`point_params`). SMAPpy drops saved settings a plugin no longer has, so saved pipelines still load. Its `version` is now "2", since the fits' numbers changed (SMAPpy's batch reruns files whose steps' versions changed). Checked in SMAPpy's environment (its editable install of this working tree) by running the plugin on each tutorial site: all five models converged.
 
-## Compilations kept on disk across SMAPpy sessions (2026-11-09)
+## Compilations kept on disk across SMAPpy sessions (2026-11-09; last reviewed 2026-11-09)
 
 **The choice.** The SMAPpy plugin switches on JAX's persistent compilation cache before its first fit (`use_compilation_cache`): the folder `locmofit_jax_cache` in SMAPpy's configuration folder, and a minimum compile time of 0, since JAX's default (1 s) would skip most of our compilations. A folder already set in `JAX_COMPILATION_CACHE_DIR` is kept. `run_locmofit` does not do it, because both settings hold for the whole process and a library should not change them for its caller; MATLAB or a script gets the same by setting `JAX_COMPILATION_CACHE_DIR` and `JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0` in the environment.
 
@@ -149,13 +149,13 @@ A second SpCapRing file (other copies of the sites, another grid), fitted in a n
 
 **The folder.** SMAPpy's configuration folder, which `SMAPPY_CONFIG_DIR` redirects (so tests get their own), not LocMoFitPy's package folder: that belongs to the installer (every update from GitHub reinstalls it with `pip install --upgrade`), with an editable install it is the git checkout, and it may not be writable. The platform's cache folder (`~/Library/Caches`, `~/.cache`, `%LOCALAPPDATA%`) would be the proper place for files that can be rebuilt, but choosing it needs per-platform code or `platformdirs`, a new dependency; the configuration folder's drawback is that backups of the settings include the cache.
 
-## Float32 fits can stop early (found 2026-10-29, accepted the same day)
+## Float32 fits can stop early (found 2026-10-29, accepted the same day; last reviewed 2026-11-13)
 
-As in LocMoFit.jl (its `NOTES.md`, known issue), BFGS can stop in float32 when the loss is unchanged in two successive iterations although the parameters still move (0.01–0.04 per step) and the largest gradient component is above `tol`: a mean loss of about 15 is resolved to about 1e-6 in float32. On 10 starts nudged by 1e-3 around the tutorial sites' moved start, fits stopped above `tol` on the ring 3, the cap 4 and the cap with ring 8 times out of 10 before task 2, and 8, 7 and 10 times after it; never on the double ring, and never in float64, the default. The loss then stays within about 1e-4 per localization of the optimum, and the parameters move by up to 0.5–0.9 (nm or the cap's units) against statistical errors of 1–12 nm.
+As in LocMoFit.jl (its `DESIGN.md`, known issue), BFGS can stop in float32 when the loss is unchanged in two successive iterations although the parameters still move (0.01–0.04 per step) and the largest gradient component is above `tol`: a mean loss of about 15 is resolved to about 1e-6 in float32. On 10 starts nudged by 1e-3 around the tutorial sites' moved start, fits stopped above `tol` on the ring 3, the cap 4 and the cap with ring 8 times out of 10 before task 2, and 8, 7 and 10 times after it; never on the double ring, and never in float64, the default. The loss then stays within about 1e-4 per localization of the optimum, and the parameters move by up to 0.5–0.9 (nm or the cap's units) against statistical errors of 1–12 nm.
 
 **Not caused by task 2.** On one set of 10 nudged starts per site (ring, cap, cap with ring), the current code stopped early 0, 6 and 9 times; with the gradient from autodiff instead of `_ll_bwd` 1, 6 and 8; with the value evaluated apart from the gradient (the old line search) 3, 5 and 9; without padding 2, 5 and 9. Each change only moves the rounding along the path, so the counts vary with the start, not with the optimization.
 
-**Far from the origin it is worse (measured 2026-11-13).** As in LocMoFit.jl (its `NOTES.md`, where the cause is described): float32 resolves a coordinate at 100 µm only to 0.0078 nm, and the model points are placed at the absolute coordinates. The accuracy benchmark's sites (LocMoFit.jl's, 20 per model, background, moved start) moved by 25 and 100 µm in x and y, against the float64 fit at the original position; each cell: the largest change of the position and of the axis, in units of the statistical error, and the median loss above the float64 optimum, per localization:
+**Far from the origin it is worse (measured 2026-11-13).** As in LocMoFit.jl (its `DESIGN.md`, where the cause is described): float32 resolves a coordinate at 100 µm only to 0.0078 nm, and the model points are placed at the absolute coordinates. The accuracy benchmark's sites (LocMoFit.jl's, 20 per model, background, moved start) moved by 25 and 100 µm in x and y, against the float64 fit at the original position; each cell: the largest change of the position and of the axis, in units of the statistical error, and the median loss above the float64 optimum, per localization:
 
 | | float32 at the origin | at 25 µm | at 100 µm |
 | --- | --- | --- | --- |

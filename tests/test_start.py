@@ -1,4 +1,4 @@
-"""Starting values from the data (as LocMoFit.jl's test/runtests.jl, "starting values from the data"; its derivations/derivation.qmd, Starting values from the data): noise-free points with isotropic precisions, so that the expected values follow from the geometry; the two scores against loops over the derivation's formulas; `fit_problem`'s handling of given, frozen and tied values; and the estimate against LocMoFit.jl's on the tutorial data."""
+"""Starting values from the data (as LocMoFit.jl's test/runtests.jl, "starting values from the data"; its derivations/derivations.qmd, Starting values from the data): noise-free points with isotropic precisions, so that the expected values follow from the geometry; the two scores against loops over the derivation's formulas; `fit_problem`'s handling of given, frozen and tied values; and the estimate against LocMoFit.jl's on the tutorial data."""
 
 import json
 import math

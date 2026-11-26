@@ -244,7 +244,7 @@ def problem(
 
 
 def reference_loss(locs, precs, Ys, w, sigma, f0=None, V=1.0, logprior=0.0):
-    """The posterior of LocMoFit.jl's derivations/derivation.qmd with plain loops: per localization, the mean of the Gaussian densities over each component's points (variances precision² + σ²), the components weighted by their fractions w, mixed with a uniform background of density 1/V at fraction f0 (None: no background); minus the log posterior with the log prior `logprior`, per localization."""
+    """The posterior of LocMoFit.jl's derivations/derivations.qmd with plain loops: per localization, the mean of the Gaussian densities over each component's points (variances precision² + σ²), the components weighted by their fractions w, mixed with a uniform background of density 1/V at fraction f0 (None: no background); minus the log posterior with the log prior `logprior`, per localization."""
     N, D = locs.shape
     total = 0.0
     for n in range(N):
@@ -313,7 +313,7 @@ def every_prior(model):
 
 
 def reference_log_prior(model, theta, starts, priors):
-    """The log prior of LocMoFit.jl's derivations/derivation.qmd (Priors on every parameter) with plain formulas, for the priors `priors` at the parameters θ: each density at its quantity, a size's magnitude, a cap's κ′ = sign(s)·sin(α/2), an axis by the independent construction `pose` (for component 2, in component 1's frame), the fractions."""
+    """The log prior of LocMoFit.jl's derivations/derivations.qmd (Priors on every parameter) with plain formulas, for the priors `priors` at the parameters θ: each density at its quantity, a size's magnitude, a cap's κ′ = sign(s)·sin(α/2), an axis by the independent construction `pose` (for component 2, in component 1's frame), the fractions."""
     total = 0.0
     for name, prior in priors.items():
         if name == "fractions":

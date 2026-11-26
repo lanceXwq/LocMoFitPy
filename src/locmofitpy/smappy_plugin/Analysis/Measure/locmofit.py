@@ -4,7 +4,7 @@ Part of LocMoFitPy, outside SMAPpy's package: SMAPpy scans this folder (`locmofi
 
 **Updates.** LocMoFitPy, this file with it, comes from the head of its GitHub repository's main branch: before the first fit of each SMAPpy session unless SMAPpy's automatic update check is off (*Preferences > General*); with it off, LocMoFitPy is updated by installing it into SMAPpy's Python again, as at the start. The new version is installed before anything of LocMoFitPy is imported, so the fit runs on it at once. An editable install (a checkout) is never updated here. This file reads only the standard library and SMAPpy until the fit, because what it imports of LocMoFitPy would stay the old version until SMAPpy restarts.
 
-**Compilations.** A fit compiles once per setup and size class in a session (LocMoFitPy's `NOTES.md`). Those compilations are kept on disk in JAX's persistent compilation cache, in the folder `locmofit_jax_cache` of SMAPpy's configuration folder, so a later session loads them instead of compiling again; a folder already set in JAX_COMPILATION_CACHE_DIR is kept.
+**Compilations.** A fit compiles once per setup and size class in a session (LocMoFitPy's `DESIGN.md`). Those compilations are kept on disk in JAX's persistent compilation cache, in the folder `locmofit_jax_cache` of SMAPpy's configuration folder, so a later session loads them instead of compiling again; a folder already set in JAX_COMPILATION_CACHE_DIR is kept.
 
 **Per region.** `per_region = True`: it runs on the view, once per ROI, or once per cluster, and the fitted values become columns of the region table, so *Filter ROIs*, *Sort ROIs*, histograms and *Regions to column* use them.
 

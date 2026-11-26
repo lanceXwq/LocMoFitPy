@@ -1,4 +1,4 @@
-"""The likelihood of LocMoFit.jl's derivations/derivation.qmd: each localization's density is a mixture of the structure (the mean of Gaussians over each component's model points, the components weighted) and a uniform background."""
+"""The likelihood of LocMoFit.jl's derivations/derivations.qmd: each localization's density is a mixture of the structure (the mean of Gaussians over each component's model points, the components weighted) and a uniform background."""
 
 from __future__ import annotations
 
@@ -30,9 +30,9 @@ def log_likelihood(
 ):
     """Σₙ log(pₙ + eᵇ) over the localizations (the rows of the (N, D) `locs`, with precisions `loc_prec`), or Σₙ log pₙ without a background.
 
-    pₙ is the structure's density at localization n: for each component k, whose model points are the rows `ranges[k]` of `points` (of which the first D columns are used), the mean of the Gaussians around its points with per-axis variances `loc_prec² + sigma²`; the components weighted by `exp(logw)`. In a fit, `logw` are the log fractions of the components and `b` the log of the background's density times its fraction (LocMoFit.jl's derivations/derivation.qmd, @eq-mixture). The squared distances are formed from differences (not expanded), so the result keeps its precision far from the origin, also in float32.
+    pₙ is the structure's density at localization n: for each component k, whose model points are the rows `ranges[k]` of `points` (of which the first D columns are used), the mean of the Gaussians around its points with per-axis variances `loc_prec² + sigma²`; the components weighted by `exp(logw)`. In a fit, `logw` are the log fractions of the components and `b` the log of the background's density times its fraction (LocMoFit.jl's derivations/derivations.qmd, @eq-mixture). The squared distances are formed from differences (not expanded), so the result keeps its precision far from the origin, also in float32.
 
-    For padded arrays (as `run_locmofit` compiles them, so that sites of similar sizes share one compilation), `loc_weight` (N,) is 1 for a localization and 0 for padding, `point_valid` (M,) marks the real points, and `counts[k]` is component k's number of real points; padding then contributes nothing. Its gradient is in closed form (`_ll_bwd`; LocMoFit.jl's derivations/derivation.qmd, the gradient of the log-likelihood).
+    For padded arrays (as `run_locmofit` compiles them, so that sites of similar sizes share one compilation), `loc_weight` (N,) is 1 for a localization and 0 for padding, `point_valid` (M,) marks the real points, and `counts[k]` is component k's number of real points; padding then contributes nothing. Its gradient is in closed form (`_ll_bwd`; LocMoFit.jl's derivations/derivations.qmd, the gradient of the log-likelihood).
     """
     dtype = locs.dtype
     if loc_weight is None:
@@ -163,7 +163,7 @@ def _ll_fwd(
 
 
 def _ll_bwd(ranges, background, saved, gbar):
-    """The gradient with respect to the points, σ, the components' log fractions and the background's log term, from the shares of LocMoFit.jl's derivations/derivation.qmd: rₙ (the localization is signal), q_nk (it comes from component k) and the weights of the points within each component. The exponents are recomputed rather than kept from the forward pass, and the gradient with respect to the points is two matrix products on coordinates centered at the localizations' mean (exact up to rounding of that size); the one with respect to the variances keeps the differences."""
+    """The gradient with respect to the points, σ, the components' log fractions and the background's log term, from the shares of LocMoFit.jl's derivations/derivations.qmd: rₙ (the localization is signal), q_nk (it comes from component k) and the weights of the points within each component. The exponents are recomputed rather than kept from the forward pass, and the gradient with respect to the points is two matrix products on coordinates centered at the localizations' mean (exact up to rounding of that size); the one with respect to the variances keeps the differences."""
     (
         locs,
         loc_prec,
@@ -282,11 +282,11 @@ def parameters(u, data: FitData, static: FitStatic) -> dict:
 
 
 def loss_value(u, data: FitData, static: FitStatic):
-    """Minus the log posterior of the parameters, per localization (LocMoFit.jl's derivations/derivation.qmd, @eq-full-posterior): the log-likelihood plus the log density of every prior that is not flat."""
+    """Minus the log posterior of the parameters, per localization (LocMoFit.jl's derivations/derivations.qmd, @eq-full-posterior): the log-likelihood plus the log density of every prior that is not flat."""
     theta = parameters(u, data, static)
     model = static.model
     points = model.model_points(data.unit_model, theta)
-    # the log fractions of the mixture, log softmax(ω₀, 0, ω₂, …) (LocMoFit.jl's derivations/derivation.qmd, @eq-logfractions)
+    # the log fractions of the mixture, log softmax(ω₀, 0, ω₂, …) (LocMoFit.jl's derivations/derivations.qmd, @eq-logfractions)
     lw = jnp.stack(model.log_weights(theta))
     if static.background:
         lse = jnp.logaddexp(theta["omega0"], logsumexp(lw))

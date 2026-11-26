@@ -47,7 +47,7 @@ def kernel_inputs():
 
 
 def test_log_likelihood_float32_far_from_origin():
-    # far from the origin (40 µm), single precision keeps each localization's log density: rounding the coordinates to float32 moves each difference by at most u, one unit in the last place at 40 µm (0.004 nm), so the log density of each Gaussian errs by at most Σ_d (2|x_d - y_d|·u + u²)/(2v_d) (LocMoFit.jl's derivations/derivation.qmd), and the log of their mean by at most the largest of these; expanding the square would err by about ε·x²/v ≈ 20
+    # far from the origin (40 µm), single precision keeps each localization's log density: rounding the coordinates to float32 moves each difference by at most u, one unit in the last place at 40 µm (0.004 nm), so the log density of each Gaussian errs by at most Σ_d (2|x_d - y_d|·u + u²)/(2v_d) (LocMoFit.jl's derivations/derivations.qmd), and the log of their mean by at most the largest of these; expanding the square would err by about ε·x²/v ≈ 20
     x, y, s = kernel_inputs()
     sigma, shift = 1.5, 40_000.0
 
@@ -203,7 +203,7 @@ def test_loss_against_reference(case, D, background, variant):
 
 @pytest.mark.parametrize("alpha", [5.0, 2.0, 1.0])
 def test_fraction_prior_optimum(alpha):
-    # two rings 2 µm apart along their axis, n1 and n2 localizations exactly on them, no background: every localization comes from its own ring (q = 0 or 1 in LocMoFit.jl's derivations/derivation.qmd, @eq-shares), so the share that maximizes the posterior is (n2 + alpha - 1)/(n + 2(alpha - 1)) (@eq-share-map), n2/n for the flat Dirichlet(1), whose term is 0 (Dirichlet(1) rather than Flat() reuses the compiled fit); the fits also check what a fit without a background returns (as LocMoFit.jl's test)
+    # two rings 2 µm apart along their axis, n1 and n2 localizations exactly on them, no background: every localization comes from its own ring (q = 0 or 1 in LocMoFit.jl's derivations/derivations.qmd, @eq-shares), so the share that maximizes the posterior is (n2 + alpha - 1)/(n + 2(alpha - 1)) (@eq-share-map), n2/n for the flat Dirichlet(1), whose term is 0 (Dirichlet(1) rather than Flat() reuses the compiled fit); the fits also check what a fit without a background returns (as LocMoFit.jl's test)
     n1, n2, r = 30, 10, 50.0
 
     def ring(n, z):
@@ -249,7 +249,7 @@ def test_fraction_prior_optimum(alpha):
 @pytest.mark.parametrize("case", range(len(CASES)))
 @pytest.mark.parametrize("D", [3, 2])
 def test_length_unit(case, D):
-    # every length divided by L (positions, radii, scales, the blur, the spacing, and the log-normal priors' medians): the posterior's geometry is the same, and the loss (minus the log posterior per localization) drops by (D + J/N)·log L exactly, with J log-normal priors (LocMoFit.jl's derivations/derivation.qmd, @eq-units-priors)
+    # every length divided by L (positions, radii, scales, the blur, the spacing, and the log-normal priors' medians): the posterior's geometry is the same, and the loss (minus the log posterior per localization) drops by (D + J/N)·log L exactly, with J log-normal priors (LocMoFit.jl's derivations/derivations.qmd, @eq-units-priors)
     L = 2.5
     _, model, theta, starts = CASES[case]
     scaled = {k: v / L if k[0] in "xyzrs" else v for k, v in theta.items()}
@@ -328,7 +328,7 @@ def test_padding(D):
 
 
 def test_priors():
-    # where the likelihood does not depend on a quantity, the fit ends at its prior's mode (LocMoFit.jl's derivations/derivation.qmd, Priors on every parameter): the height of a ring in 2D under a normal density; and the cap of a SpCapRing whose share is held at 1e-20, fitted to a ring's localizations with a background, so that the cap's density is negligible next to the background's: its height z2 at the normal's mean, its scale at the log-normal's mode exp(mu - sigma²), its κ′ at the normal's mean, and its axis along ±d under a Bingham density that holds it near the plane perpendicular to ν = (θ, ϕ) = (0.5 + π/2, 1) (κ = −5) and pulls it toward d = (0.5, 1), perpendicular to ν, within that plane (κ = 2): d is the eigenvector of A with the largest eigenvalue (as LocMoFit.jl's test)
+    # where the likelihood does not depend on a quantity, the fit ends at its prior's mode (LocMoFit.jl's derivations/derivations.qmd, Priors on every parameter): the height of a ring in 2D under a normal density; and the cap of a SpCapRing whose share is held at 1e-20, fitted to a ring's localizations with a background, so that the cap's density is negligible next to the background's: its height z2 at the normal's mean, its scale at the log-normal's mode exp(mu - sigma²), its κ′ at the normal's mean, and its axis along ±d under a Bingham density that holds it near the plane perpendicular to ν = (θ, ϕ) = (0.5 + π/2, 1) (κ = −5) and pulls it toward d = (0.5, 1), perpendicular to ν, within that plane (κ = 2): d is the eigenvector of A with the largest eigenvalue (as LocMoFit.jl's test)
     _, model, theta, starts = CASES[0]
     locs, precs = make_data(model, theta, starts, D=2)
     held = tuple(k for k in case_params(model, theta, starts) if k != "z")

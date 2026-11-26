@@ -296,7 +296,7 @@ def test_fit_cap_with_ring():
     ],
 )
 def test_fit_from_estimated_start(case, model):
-    # with no starting values given, every 3D tutorial fit starts from the data and reaches the optimum the moved-start fit reaches (or a better one), the fit that the tests above check against the truth and against LocMoFit.jl's (tests/data/julia_fits.json): its loss no more than 0.01 per localization above, the threshold LocMoFit.jl's NOTES.md counts a miss by, while the wrong maxima found on simulated sites lay 0.04–0.7 above (as LocMoFit.jl's test/fit.jl)
+    # with no starting values given, every 3D tutorial fit starts from the data and reaches the optimum the moved-start fit reaches (or a better one), the fit that the tests above check against the truth and against LocMoFit.jl's (tests/data/julia_fits.json): its loss no more than 0.01 per localization above, the threshold LocMoFit.jl's DESIGN.md counts a miss by, while the wrong maxima found on simulated sites lay 0.04–0.7 above (as LocMoFit.jl's test/fit.jl)
     locs, precs, _, _, _ = tutorial(case, 3)
     a = lm.run_locmofit(model, locs, precs, fov_volume=300.0**3)
     assert a["retcode"] == "Success"

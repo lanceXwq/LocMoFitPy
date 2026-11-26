@@ -1,4 +1,4 @@
-"""Starting values estimated from the localizations (as LocMoFit.jl's start.jl; its derivations/derivation.qmd, Starting values from the data).
+"""Starting values estimated from the localizations (as LocMoFit.jl's start.jl; its derivations/derivations.qmd, Starting values from the data).
 
 The estimate runs once per site, before the fit, in NumPy (float64 whatever the fit's dtype). The direction search scores all candidate axes of a set at once, as (N, K) arrays.
 """
